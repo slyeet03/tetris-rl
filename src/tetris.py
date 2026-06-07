@@ -90,10 +90,12 @@ class Tetris:
                 self.lock_piece(self.current_piece)
 
     def hard_drop(self):
-        while self.valid_move(self.current_piece, 0, 1, 0):
-            self.current_piece.y += 1
+        lines_cleared = 0
+        if not self.game_over:
+            while self.valid_move(self.current_piece, 0, 1, 0):
+                self.current_piece.y += 1
         
-        lines_cleared = self.lock_piece(self.current_piece)
+            lines_cleared = self.lock_piece(self.current_piece)
 
         return lines_cleared
 
@@ -242,9 +244,7 @@ def tetris():
                             game.current_piece.rotation += 1
 
                     if event.key == pygame.K_SPACE:
-                        while game.valid_move(game.current_piece, 0, 1, 0):
-                            game.current_piece.y += 1
-                        game.lock_piece(game.current_piece)
+                        game.hard_drop() 
 
         delta_time = clock.get_rawtime()
         fall_time+=delta_time
