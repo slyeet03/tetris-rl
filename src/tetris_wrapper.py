@@ -269,6 +269,4 @@ class TetrisEnv(gym.Env):
             pygame.display.flip()
             self.clock.tick(config.FPS)
 
-        
-
 
