@@ -1,5 +1,4 @@
-from functools import total_ordering
-
+import gymnasium as gym
 import numpy as np
 import pygame
 
@@ -8,11 +7,20 @@ import tetris
 from tetris import Tetris, Tetromino
 
 
-class TetrisEnv:
-    def __init__(self, render_mode = False):
+class TetrisEnv(gym.Env):
+    def __init__(self, render_mode = None):
         self.render_mode = render_mode
+
+        self.observation_space = gym.spaces.Box(
+            low=0.0,
+            high=1.0,
+            shape=(32,),
+            dtype = np.float32
+        )
+
+        self.action_space = gym.spaces.Discrete(config.MAX_PLACEMENTS)
         
-        if render_mode:
+        if render_mode == "yes":
             pygame.init()
             self.screen = pygame.display.set_mode((config.WIDTH, config.HEIGHT))
             pygame.display.set_caption('Tetris')
@@ -20,10 +28,16 @@ class TetrisEnv:
         
         self.reset()
 
-    def reset(self):
-        self.game = Tetris(config.BOARD_WIDTH,config.BOARD_HEIGHT)
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
 
-        return self.get_observation()
+        self.game = Tetris(
+            config.BOARD_WIDTH,
+            config.BOARD_HEIGHT,
+            self.np_random
+        )
+
+        return self.get_observation(), {}
 
     def get_valid_placement(self):
         placements = []
@@ -48,7 +62,7 @@ class TetrisEnv:
 
             # a piece is a 5x5 grid so gotta do some shifting for it to only occupy the cells that the 0 is on
             for x_pos in range(-leftmost, self.game.width - rightmost):
-                temp = Tetromino(x_pos, -2, piece.shape)
+                temp = Tetromino(x_pos, -2, piece.shape,self.game.rng,piece.shape_idx)
                 temp.rotation = rotation_idx
 
                 # can a piece even spawn here?
@@ -133,7 +147,7 @@ class TetrisEnv:
 
     def step(self, action):
         placements = self.get_valid_placement()
-        
+        action = action % len(placements) 
         rotation, column = placements[action]
         
         # screenshot the board before placing any blocks

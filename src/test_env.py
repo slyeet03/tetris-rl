@@ -5,13 +5,13 @@ import pygame
 
 from tetris_wrapper import TetrisEnv
 
-env = TetrisEnv(render_mode=True)
+env = TetrisEnv(render_mode="yes")
 
 NUM_GAMES = 10
 MOVE_DELAY = 0.15 
 
 for game_num in range(NUM_GAMES):
-    env.reset()
+    observation, _ = env.reset()
 
     total_reward = 0
     steps = 0
@@ -52,7 +52,8 @@ for game_num in range(NUM_GAMES):
         f"Reward={total_reward:.2f}, "
         f"Steps={steps}"
     )
-    print(obs)
+    print(obs.shape)
+    print(len(obs))
 
 running = True
 while running:

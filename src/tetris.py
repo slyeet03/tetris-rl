@@ -1,22 +1,24 @@
-import random
 import sys
 
+import numpy as np
 import pygame
 
 import config
 
 
 class Tetromino:
-    def __init__(self,x,y,shape,shape_idx=0):
+    def __init__(self,x,y,shape,rng,shape_idx=0):
         self.x = x
         self.y = y
         self.shape = shape
-        self.color = random.choice(config.COLORS)
+        idx = rng.integers(0, len(config.COLORS))
+        self.color = config.COLORS[idx]
         self.rotation = 0
         self.shape_idx = shape_idx
 
 class Tetris:
-    def __init__(self,width,height):
+    def __init__(self,width,height,rng):
+        self.rng = rng
         self.width = width
         self.height = height
         self.grid = [[0 for _ in range(width)] for _ in range(height)]
@@ -25,11 +27,12 @@ class Tetris:
         self.game_over = False
         self.score = 0
         self.lines = 0
+        
 
     def new_piece(self):
-        shape_idx = random.randint(0, len(config.SHAPES) - 1)
+        shape_idx = self.rng.integers(0, len(config.SHAPES))
         shape = config.SHAPES[shape_idx]
-        return Tetromino(3, -2, shape, shape_idx)
+        return Tetromino(3, -2, shape, self.rng,shape_idx)
 
     def valid_move(self, piece, x, y, rotation):
         for i, row in enumerate(piece.shape[(piece.rotation+rotation) % len(piece.shape)]):
@@ -198,13 +201,14 @@ def draw_game_over(screen, x, y):
     screen.blit(text, (x, y))
 
 def tetris():
+    rng = np.random.default_rng()
     pygame.init()
 
     screen = pygame.display.set_mode((config.WIDTH, config.HEIGHT))
     pygame.display.set_caption('Tetris')
     clock=pygame.time.Clock()
 
-    game = Tetris(config.BOARD_WIDTH,config.BOARD_HEIGHT)
+    game = Tetris(config.BOARD_WIDTH,config.BOARD_HEIGHT,rng)
 
     fall_time = 0
     fall_speed = config.FALL_SPEED
@@ -230,7 +234,7 @@ def tetris():
 
             if event.type == pygame.KEYDOWN:
                 if game.game_over:
-                    game = Tetris(config.BOARD_WIDTH,config.BOARD_HEIGHT)
+                    game = Tetris(config.BOARD_WIDTH,config.BOARD_HEIGHT,rng)
                 else:
                     if event.key == pygame.K_LEFT:
                         if game.valid_move(game.current_piece, -1, 0, 0):
