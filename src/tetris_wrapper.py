@@ -2,20 +2,24 @@ import numpy as np
 import pygame
 
 import config
+import tetris
 from tetris import Tetris, Tetromino
 
 
 class TetrisEnv:
     def __init__(self, render_mode = False):
-        self.reset(render_mode)
-
-    def reset(self, render_mode = False):
-        self.game = Tetris(config.BOARD_WIDTH,config.BOARD_HEIGHT)
+        self.render_mode = render_mode
         
         if render_mode:
             pygame.init()
             self.screen = pygame.display.set_mode((config.WIDTH, config.HEIGHT))
             pygame.display.set_caption('Tetris')
+            self.clock=pygame.time.Clock()
+        
+        self.reset()
+
+    def reset(self):
+        self.game = Tetris(config.BOARD_WIDTH,config.BOARD_HEIGHT)
 
         return self.get_observation()
 
@@ -60,9 +64,9 @@ class TetrisEnv:
     def count_holes(self):
         total_holes = 0
 
-        for x in range(0,9):
+        for x in range(config.BOARD_WIDTH):
             found_filled = False
-            for y in range(0,19):
+            for y in range(config.BOARD_HEIGHT):
                 if self.game.grid[y][x] != 0:
                     found_filled = True
                 elif found_filled:
@@ -104,10 +108,10 @@ class TetrisEnv:
         reward = 0
 
         line_rewards = [0,1,3,5,8]
-        new_holes_penalty = 0.5
-        height_penalty = 0.1
-        bumpiness_penalty = 0.1
-        game_over_penalty = -2
+        new_holes_penalty = config.NEW_HOLES_PENALTY
+        height_penalty = config.HEIGHT_PENALTY
+        bumpiness_penalty = config.BUMPINESS_PENALTY
+        game_over_penalty = config.GAME_OVER_PENALTY
 
         new_holes = holes_after - holes_before
         height_diff = height_after - height_before
@@ -124,8 +128,6 @@ class TetrisEnv:
             reward -= game_over_penalty
 
         return reward
-
-
 
     def step(self, action):
         placements = self.get_valid_placement()
@@ -176,13 +178,45 @@ class TetrisEnv:
         return array
 
     def get_observation(self):
-        flat_arr = [item for row in self.game.grid for item in row]
-        numpy_flat_arr = np.array(flat_arr)
+        obs = []
 
-        return numpy_flat_arr
+        for row in self.game.grid:
+            for cell in row:
+                obs.append(1 if cell != 0 else 0)
+
+        return np.array(obs, dtype=bool)
 
 
+    def render(self):
+        if self.render_mode:
+            self.screen.fill(config.BLACK)
+            pygame.draw.rect(
+                self.screen,
+                config.WHITE,
+                (
+                    config.BOARD_X - 5,
+                    config.BOARD_Y - 5,
+                    config.PLAYFIELD_WIDTH + 10,
+                    config.PLAYFIELD_HEIGHT + 10
+                ),
+                5
+            )
+            pygame.draw.rect(
+                self.screen,
+                config.WHITE,
+                (config.NEXT_BOX_X - 5, config.NEXT_BOX_Y, 140, 120),
+                4
+            )
+            tetris.draw_next_piece(self.screen, self.game.next_piece)
 
+            tetris.draw(self.game,self.screen)
+            if self.game.game_over:
+                tetris.draw_game_over(self.screen,config.WIDTH // 2 - 100,config.HEIGHT // 2 - 30)
+
+            tetris.draw_score(self.screen, self.game.score, self.game.lines, config.SCORE_BOX_X, config.SCORE_BOX_Y)
+
+            pygame.display.flip()
+            self.clock.tick(config.FPS)
 
         
 

@@ -69,7 +69,10 @@ class Tetris:
         for i, row in enumerate(piece.shape[piece.rotation % len(piece.shape)]):
             for j, cell in enumerate(row):
                 if cell == '0':
-                    self.grid[piece.y + i][piece.x + j] = piece.color
+                    board_y = piece.y + i
+                    
+                    if board_y >= 0:
+                        self.grid[board_y][piece.x + j] = piece.color
 
         lines_cleared = self.clear_lines()
         self.score += lines_cleared * 100

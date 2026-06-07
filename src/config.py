@@ -1,5 +1,10 @@
 # tetris wrapper constants
 MAX_PLACEMENTS = 40
+# penalties
+NEW_HOLES_PENALTY = 0.5
+HEIGHT_PENALTY = 0.1
+BUMPINESS_PENALTY = 0.1
+GAME_OVER_PENALTY = -2
 
 # tetris constants
 FPS = 60
