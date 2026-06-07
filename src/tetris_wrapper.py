@@ -120,28 +120,68 @@ class TetrisEnv(gym.Env):
 
         return bumpiness
 
+    def column_height_std(self):
+        heights = []
+        for x in range(config.BOARD_WIDTH):
+            height = 0
+            for y in range(config.BOARD_HEIGHT):
+                if self.game.grid[y][x] != 0:
+                    height = config.BOARD_HEIGHT - y
+                    break
+            heights.append(height)
+        mean = sum(heights) / len(heights)
+        variance = sum((h - mean) ** 2 for h in heights) / len(heights)
+        return variance ** 0.5
+
+    def count_wells(self):
+        heights = []
+        for x in range(config.BOARD_WIDTH):
+            height = 0
+            for y in range(config.BOARD_HEIGHT):
+                if self.game.grid[y][x] != 0:
+                    height = config.BOARD_HEIGHT - y
+                    break
+            heights.append(height)
+
+        wells = 0
+        for i in range(len(heights)):
+            left  = heights[i - 1] if i > 0 else config.BOARD_HEIGHT
+            right = heights[i + 1] if i < len(heights) - 1 else config.BOARD_HEIGHT
+            depth = min(left, right) - heights[i]
+            if depth > 0:
+                wells += depth
+        return wells
+
     def compute_reward(self,lines_cleared, holes_before,holes_after,height_before,height_after,bumpiness_before,bumpiness_after,game_over):
         reward = 0
 
-        line_rewards = [0,1,3,5,8]
-        new_holes_penalty = config.NEW_HOLES_PENALTY
-        height_penalty = config.HEIGHT_PENALTY
-        bumpiness_penalty = config.BUMPINESS_PENALTY
-        game_over_penalty = config.GAME_OVER_PENALTY
+        line_rewards = [0,10,30,50,100]
 
         new_holes = holes_after - holes_before
         height_diff = height_after - height_before
         bumpiness_diff = bumpiness_after - bumpiness_before
 
         reward += line_rewards[lines_cleared]
+        reward += config.SURVIVAL_BONUS
+
         if new_holes > 0:
-            reward -= new_holes_penalty * new_holes
+            reward -= config.NEW_HOLES_PENALTY * new_holes
+        reward -= config.EXISTING_HOLES_PENALTY * holes_after
+
         if height_diff > 0:
-            reward -= height_penalty * height_diff
+            reward -= config.HEIGHT_PENALTY_DIFF * height_diff
         if bumpiness_diff > 0:
-            reward -= bumpiness_penalty * bumpiness_diff
+            reward -= config.BUMPINESS_PENALTY_DIFF * bumpiness_diff
+   
+        '''
+        reward -= config.HEIGHT_PENALTY * height_after
+        reward -= config.BUMPINESS_PENALTY * bumpiness_after
+        reward -= config.SPREAD_PENALTY * self.column_height_std()
+        '''
+        reward -= config.WELL_PENALTY * self.count_wells()
+
         if game_over:
-            reward -= game_over_penalty
+            reward -= config.GAME_OVER_PENALTY
 
         return reward
 

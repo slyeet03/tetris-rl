@@ -41,7 +41,7 @@ def play_game(model, env):
 
         time.sleep(STEP_DELAY)
 
-    time.sleep(2)
+    time.sleep(0.10)
     return True
 
 
