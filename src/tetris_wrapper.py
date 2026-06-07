@@ -14,7 +14,7 @@ class TetrisEnv:
         
         if render_mode:
             pygame.init()
-            screen = pygame.display.set_mode((config.WIDTH, config.HEIGHT))
+            self.screen = pygame.display.set_mode((config.WIDTH, config.HEIGHT))
             pygame.display.set_caption('Tetris')
 
         return self.get_observation()
@@ -73,8 +73,8 @@ class TetrisEnv:
     def aggregate_height(self):
         total = 0
 
-        for x in range(0,9):
-            for y in range(0,19):
+        for x in range(config.BOARD_WIDTH):
+            for y in range(config.BOARD_HEIGHT):
                 if self.game.grid[y][x] != 0:
                     total += (config.BOARD_HEIGHT - y)
                     break
@@ -99,6 +99,33 @@ class TetrisEnv:
            bumpiness += abs(heights[i]-heights[i+1])
 
         return bumpiness
+
+    def compute_reward(self,lines_cleared, holes_before,holes_after,height_before,height_after,bumpiness_before,bumpiness_after,game_over):
+        reward = 0
+
+        line_rewards = [0,1,3,5,8]
+        new_holes_penalty = 0.5
+        height_penalty = 0.1
+        bumpiness_penalty = 0.1
+        game_over_penalty = -2
+
+        new_holes = holes_after - holes_before
+        height_diff = height_after - height_before
+        bumpiness_diff = bumpiness_after - bumpiness_before
+
+        reward += line_rewards[lines_cleared]
+        if new_holes > 0:
+            reward -= new_holes_penalty * new_holes
+        if height_diff > 0:
+            reward -= height_penalty * height_diff
+        if bumpiness_diff > 0:
+            reward -= bumpiness_penalty * bumpiness_diff
+        if game_over:
+            reward -= game_over_penalty
+
+        return reward
+
+
 
     def step(self, action):
         placements = self.get_valid_placement()
@@ -134,7 +161,7 @@ class TetrisEnv:
 
         observation = self.get_observation()
 
-        return observation, reward, self.game.game_over, False
+        return observation, reward, self.game.game_over, False, {}
 
     # to check what action indices are valid
     def action_masks(self):

@@ -147,7 +147,7 @@ def draw_score(screen, score, lines, x, y):
     screen.blit(label_font.render("Score", True, config.WHITE), (x + 6, y + 7))
     screen.blit(label_font.render("Lines", True, config.WHITE), (x + 6, y + row_h + 7))
     screen.blit(label_font.render(str(score), True, config.WHITE), (mid + 6, y + 7))
-    screen.blit(label_font.render(str(lines), True, WHITE), (mid + 6, y + row_h + 7))
+    screen.blit(label_font.render(str(lines), True, config.WHITE), (mid + 6, y + row_h + 7))
 
 def draw_next_piece(screen, piece):
     font = pygame.font.Font(None, 36)
