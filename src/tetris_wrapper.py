@@ -193,16 +193,16 @@ class TetrisEnv:
             obs.append(height / config.BOARD_HEIGHT)
 
         # holes per column   
-            for x in range(config.BOARD_WIDTH):
-                col_holes = 0
-                found_filled = False
-                for y in range(config.BOARD_HEIGHT):
-                    if self.game.grid[y][x] != 0:
-                        found_filled = True
-                    elif found_filled:
-                        col_holes += 1
+        for x in range(config.BOARD_WIDTH):
+            col_holes = 0
+            found_filled = False
+            for y in range(config.BOARD_HEIGHT):
+                if self.game.grid[y][x] != 0:
+                    found_filled = True
+                elif found_filled:
+                    col_holes += 1
 
-                obs.append(col_holes / config.BOARD_HEIGHT)
+            obs.append(col_holes / config.BOARD_HEIGHT)
 
         # bumpiness
         obs.append(self.compute_bumpiness() / (config.BOARD_HEIGHT * 9))
