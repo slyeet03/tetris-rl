@@ -179,6 +179,7 @@ class TetrisEnv:
 
         return array
 
+    # getting the states for the ppo
     def get_observation(self):
         obs = []
 

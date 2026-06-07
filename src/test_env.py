@@ -24,7 +24,7 @@ for game_num in range(NUM_GAMES):
             if event.type == pygame.QUIT:
                 pygame.quit()
                 raise SystemExit
-
+        
         placements = env.get_valid_placement()
 
         if len(placements) == 0:
@@ -52,6 +52,7 @@ for game_num in range(NUM_GAMES):
         f"Reward={total_reward:.2f}, "
         f"Steps={steps}"
     )
+    print(obs)
 
 running = True
 while running:
