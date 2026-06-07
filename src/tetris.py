@@ -7,12 +7,13 @@ import config
 
 
 class Tetromino:
-    def __init__(self,x,y,shape):
+    def __init__(self,x,y,shape,shape_idx=0):
         self.x = x
         self.y = y
         self.shape = shape
         self.color = random.choice(config.COLORS)
         self.rotation = 0
+        self.shape_idx = shape_idx
 
 class Tetris:
     def __init__(self,width,height):
@@ -26,8 +27,9 @@ class Tetris:
         self.lines = 0
 
     def new_piece(self):
-        shape = random.choice(config.SHAPES)
-        return Tetromino(3, -2, shape)
+        shape_idx = random.randint(0, len(config.SHAPES) - 1)
+        shape = config.SHAPES[shape_idx]
+        return Tetromino(3, -2, shape, shape_idx)
 
     def valid_move(self, piece, x, y, rotation):
         for i, row in enumerate(piece.shape[(piece.rotation+rotation) % len(piece.shape)]):

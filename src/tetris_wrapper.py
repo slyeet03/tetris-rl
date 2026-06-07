@@ -1,3 +1,5 @@
+from functools import total_ordering
+
 import numpy as np
 import pygame
 
@@ -180,11 +182,45 @@ class TetrisEnv:
     def get_observation(self):
         obs = []
 
-        for row in self.game.grid:
-            for cell in row:
-                obs.append(1 if cell != 0 else 0)
+        # column heights
+        for x in range(config.BOARD_WIDTH):
+            height = 0
+            for y in range(config.BOARD_HEIGHT):
+                if self.game.grid[y][x] != 0:
+                    height = config.BOARD_HEIGHT - y
+                    break
 
-        return np.array(obs, dtype=bool)
+            obs.append(height / config.BOARD_HEIGHT)
+
+        # holes per column   
+            for x in range(config.BOARD_WIDTH):
+                col_holes = 0
+                found_filled = False
+                for y in range(config.BOARD_HEIGHT):
+                    if self.game.grid[y][x] != 0:
+                        found_filled = True
+                    elif found_filled:
+                        col_holes += 1
+
+                obs.append(col_holes / config.BOARD_HEIGHT)
+
+        # bumpiness
+        obs.append(self.compute_bumpiness() / (config.BOARD_HEIGHT * 9))
+
+        # aggregate height 
+        obs.append(self.aggregate_height() / (config.BOARD_HEIGHT * config.BOARD_WIDTH))
+
+        # current piece identity
+        curr_arr = np.zeros(len(config.SHAPES))
+        curr_arr[self.game.current_piece.shape_idx] = 1
+        obs.extend(curr_arr)
+
+        # next piece identity 
+        next_arr = np.zeros(len(config.SHAPES))
+        next_arr[self.game.next_piece.shape_idx] = 1
+        obs.extend(next_arr)
+
+        return np.array(obs, dtype=np.float32)
 
 
     def render(self):
