@@ -1,3 +1,4 @@
+import numpy as np
 import pygame
 
 import config
@@ -56,7 +57,105 @@ class TetrisEnv:
 
         return placements
             
-            
+    def count_holes(self):
+        total_holes = 0
+
+        for x in range(0,9):
+            found_filled = False
+            for y in range(0,19):
+                if self.game.grid[y][x] != 0:
+                    found_filled = True
+                elif found_filled:
+                    total_holes += 1
+
+        return total_holes
+
+    def aggregate_height(self):
+        total = 0
+
+        for x in range(0,9):
+            for y in range(0,19):
+                if self.game.grid[y][x] != 0:
+                    total += (config.BOARD_HEIGHT - y)
+                    break
+
+        return total
+
+    def compute_bumpiness(self):
+        heights = []
+        for x in range(config.BOARD_WIDTH):
+            height = 0
+
+            for y in range(config.BOARD_HEIGHT):
+                if self.game.grid[y][x] != 0:
+                    height = config.BOARD_HEIGHT - y
+                    break
+
+            heights.append(height)
+
+        bumpiness = 0
+
+        for i in range(len(heights) - 1):
+           bumpiness += abs(heights[i]-heights[i+1])
+
+        return bumpiness
+
+    def step(self, action):
+        placements = self.get_valid_placement()
+        
+        rotation, column = placements[action]
+        
+        # screenshot the board before placing any blocks
+        holes_before = self.count_holes()
+        height_before = self.aggregate_height()
+        bumpiness_before = self.compute_bumpiness()
+        
+        # apply placement to the piece
+        self.game.current_piece.rotation = rotation
+        self.game.current_piece.x = column
+        self.game.current_piece.y = -2
+        lines_cleared = self.game.hard_drop()
+
+        # screenshot the board after placing the blocks
+        holes_after = self.count_holes()
+        height_after = self.aggregate_height()
+        bumpiness_after = self.compute_bumpiness()
+
+        reward = self.compute_reward(
+            lines_cleared,
+            holes_before,
+            holes_after,
+            height_before,
+            height_after,
+            bumpiness_before,
+            bumpiness_after,
+            self.game.game_over
+        )
+
+        observation = self.get_observation()
+
+        return observation, reward, self.game.game_over, False
+
+    # to check what action indices are valid
+    def action_masks(self):
+        placements = self.get_valid_placement()
+        num_valid = len(placements)
+
+        array = np.zeros(config.MAX_PLACEMENTS, dtype=bool)
+
+        for i in range(num_valid):
+            array[i] = True
+
+        return array
+
+    def get_observation(self):
+        flat_arr = [item for row in self.game.grid for item in row]
+        numpy_flat_arr = np.array(flat_arr)
+
+        return numpy_flat_arr
+
+
+
 
         
 
