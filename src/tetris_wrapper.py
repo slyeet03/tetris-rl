@@ -1,3 +1,5 @@
+from hmac import new
+
 import gymnasium as gym
 import numpy as np
 import pygame
@@ -152,6 +154,35 @@ class TetrisEnv(gym.Env):
                 wells += depth
         return wells
 
+    def count_near_complete_rows(self):
+        score = 0
+        for y in range(config.BOARD_HEIGHT):
+            filled = sum(1 for x in range(config.BOARD_WIDTH)
+                         if self.game.grid[y][x] != 0)
+            if filled >= 7:
+                score += (filled - 6)  # 7 filled = 1pt, 8 = 2pt, 9 = 3pt, 10 = 4pt (but 10 clears)
+        return score
+
+    def right_well_bonus(self):
+        heights = []
+        for x in range(config.BOARD_WIDTH):
+            height = 0
+            for y in range(config.BOARD_HEIGHT):
+                if self.game.grid[y][x] != 0:
+                    height = config.BOARD_HEIGHT - y
+                    break
+            heights.append(height)
+    
+        # reward if rightmost column is significantly lower than its neighbor
+        right_col = heights[9]
+        neighbor = heights[8]
+        avg_height = sum(heights[:9]) / 9
+    
+        # only reward if there's meaningful height built up (otherwise trivially satisfied)
+        if avg_height > 3 and neighbor > right_col + 2:
+            return neighbor - right_col   # deeper well = more reward
+        return 0
+
     def compute_reward(self,lines_cleared, holes_before,holes_after,height_before,height_after,bumpiness_before,bumpiness_after,game_over):
         reward = 0
 
@@ -276,7 +307,6 @@ class TetrisEnv(gym.Env):
         obs.extend(next_arr)
 
         return np.array(obs, dtype=np.float32)
-
 
     def render(self):
         if self.render_mode:
