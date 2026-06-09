@@ -103,24 +103,18 @@ class TetrisEnv(gym.Env):
 
         return total
 
+    # excluding the rightmost col from bumpiness
     def compute_bumpiness(self):
         heights = []
-        for x in range(config.BOARD_WIDTH):
+        for x in range(config.BOARD_WIDTH - 1):  # cols 0..8
             height = 0
-
             for y in range(config.BOARD_HEIGHT):
                 if self.game.grid[y][x] != 0:
                     height = config.BOARD_HEIGHT - y
                     break
-
             heights.append(height)
-
-        bumpiness = 0
-
-        for i in range(len(heights) - 1):
-           bumpiness += abs(heights[i]-heights[i+1])
-
-        return bumpiness
+        return sum(abs(heights[i] - heights[i+1]) for i in range(len(heights)-1))
+    
 
     def column_height_std(self):
         heights = []
@@ -137,7 +131,7 @@ class TetrisEnv(gym.Env):
 
     def count_wells(self):
         heights = []
-        for x in range(config.BOARD_WIDTH):
+        for x in range(config.BOARD_WIDTH-1):
             height = 0
             for y in range(config.BOARD_HEIGHT):
                 if self.game.grid[y][x] != 0:
@@ -154,62 +148,37 @@ class TetrisEnv(gym.Env):
                 wells += depth
         return wells
 
-    def count_near_complete_rows(self):
-        score = 0
+    def right_well_depth(self):
+        h8, h9 = 0, 0
         for y in range(config.BOARD_HEIGHT):
-            filled = sum(1 for x in range(config.BOARD_WIDTH)
-                         if self.game.grid[y][x] != 0)
-            if filled >= 7:
-                score += (filled - 6)  # 7 filled = 1pt, 8 = 2pt, 9 = 3pt, 10 = 4pt (but 10 clears)
-        return score
+            if self.game.grid[y][8] != 0:
+                h8 = config.BOARD_HEIGHT - y
+                break
+        for y in range(config.BOARD_HEIGHT):
+            if self.game.grid[y][9] != 0:
+                h9 = config.BOARD_HEIGHT - y
+                break
+        return max(0, h8 - h9)
 
-    def right_well_bonus(self):
-        heights = []
-        for x in range(config.BOARD_WIDTH):
-            height = 0
-            for y in range(config.BOARD_HEIGHT):
-                if self.game.grid[y][x] != 0:
-                    height = config.BOARD_HEIGHT - y
-                    break
-            heights.append(height)
-    
-        # reward if rightmost column is significantly lower than its neighbor
-        right_col = heights[9]
-        neighbor = heights[8]
-        avg_height = sum(heights[:9]) / 9
-    
-        # only reward if there's meaningful height built up (otherwise trivially satisfied)
-        if avg_height > 3 and neighbor > right_col + 2:
-            return neighbor - right_col   # deeper well = more reward
-        return 0
+    def near_complete_right_well_rows(self):
+        count = 0
+        for y in range(config.BOARD_HEIGHT):
+            if all(self.game.grid[y][x] != 0 for x in range(9)) and self.game.grid[y][9] == 0:
+                count += 1
+        return count
 
-    def compute_reward(self,lines_cleared, holes_before,holes_after,height_before,height_after,bumpiness_before,bumpiness_after,game_over):
-        reward = 0
-
-        line_rewards = [0,10,30,50,100]
-
-        new_holes = holes_after - holes_before
-        height_diff = height_after - height_before
-        bumpiness_diff = bumpiness_after - bumpiness_before
-
-        reward += line_rewards[lines_cleared]
+    def compute_reward(self, lines_cleared, holes_before, holes_after,
+                   height_after, bumpiness_after, game_over):
+        line_rewards = [0, 5, 15, 50, 200]
+        reward = line_rewards[lines_cleared]
         reward += config.SURVIVAL_BONUS
 
+        new_holes = holes_after - holes_before
         if new_holes > 0:
             reward -= config.NEW_HOLES_PENALTY * new_holes
         reward -= config.EXISTING_HOLES_PENALTY * holes_after
-
-        if height_diff > 0:
-            reward -= config.HEIGHT_PENALTY_DIFF * height_diff
-        if bumpiness_diff > 0:
-            reward -= config.BUMPINESS_PENALTY_DIFF * bumpiness_diff
-   
-        '''
         reward -= config.HEIGHT_PENALTY * height_after
         reward -= config.BUMPINESS_PENALTY * bumpiness_after
-        reward -= config.SPREAD_PENALTY * self.column_height_std()
-        '''
-        reward -= config.WELL_PENALTY * self.count_wells()
 
         if game_over:
             reward -= config.GAME_OVER_PENALTY
@@ -218,21 +187,16 @@ class TetrisEnv(gym.Env):
 
     def step(self, action):
         placements = self.get_valid_placement()
-        action = action % len(placements) 
+        action = action % len(placements)
         rotation, column = placements[action]
-        
-        # screenshot the board before placing any blocks
+
         holes_before = self.count_holes()
-        height_before = self.aggregate_height()
-        bumpiness_before = self.compute_bumpiness()
-        
-        # apply placement to the piece
+
         self.game.current_piece.rotation = rotation
         self.game.current_piece.x = column
         self.game.current_piece.y = -2
         lines_cleared = self.game.hard_drop()
 
-        # screenshot the board after placing the blocks
         holes_after = self.count_holes()
         height_after = self.aggregate_height()
         bumpiness_after = self.compute_bumpiness()
@@ -241,16 +205,12 @@ class TetrisEnv(gym.Env):
             lines_cleared,
             holes_before,
             holes_after,
-            height_before,
             height_after,
-            bumpiness_before,
             bumpiness_after,
             self.game.game_over
         )
 
-        observation = self.get_observation()
-
-        return observation, reward, self.game.game_over, False, {}
+        return self.get_observation(), reward, self.game.game_over, False, {}
 
     # to check what action indices are valid
     def action_masks(self):
@@ -267,18 +227,14 @@ class TetrisEnv(gym.Env):
     # getting the states for the ppo
     def get_observation(self):
         obs = []
-
-        # column heights
         for x in range(config.BOARD_WIDTH):
             height = 0
             for y in range(config.BOARD_HEIGHT):
                 if self.game.grid[y][x] != 0:
                     height = config.BOARD_HEIGHT - y
                     break
-
             obs.append(height / config.BOARD_HEIGHT)
 
-        # holes per column   
         for x in range(config.BOARD_WIDTH):
             col_holes = 0
             found_filled = False
@@ -287,21 +243,15 @@ class TetrisEnv(gym.Env):
                     found_filled = True
                 elif found_filled:
                     col_holes += 1
-
             obs.append(col_holes / config.BOARD_HEIGHT)
 
-        # bumpiness
         obs.append(self.compute_bumpiness() / (config.BOARD_HEIGHT * 9))
-
-        # aggregate height 
         obs.append(self.aggregate_height() / (config.BOARD_HEIGHT * config.BOARD_WIDTH))
 
-        # current piece identity
         curr_arr = np.zeros(len(config.SHAPES))
         curr_arr[self.game.current_piece.shape_idx] = 1
         obs.extend(curr_arr)
 
-        # next piece identity 
         next_arr = np.zeros(len(config.SHAPES))
         next_arr[self.game.next_piece.shape_idx] = 1
         obs.extend(next_arr)

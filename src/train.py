@@ -5,7 +5,6 @@ from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common import vec_env
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.utils import get_linear_fn
 
 from tetris_wrapper import TetrisEnv
 
@@ -24,7 +23,7 @@ def make_env():
     return env
 
 def main():
-    vec_env = make_vec_env(make_env,n_envs=6)
+    vec_env = make_vec_env(make_env, n_envs=8)
 
     RESUME_FROM = os.path.join(CHECKPOINT_DIR,"tetris_2000000_steps.zip")
 
@@ -32,16 +31,18 @@ def main():
     model = MaskablePPO(
         policy="MlpPolicy",
         env=vec_env,
-        n_steps=1028,
+        n_steps=2048,
         n_epochs=10,
+        batch_size=256,
         learning_rate=3e-4,
-        gamma=0.995,
-        ent_coef=0.1,
+        gamma=0.999,
+        ent_coef=0.05,
         clip_range=0.2,
+        policy_kwargs=dict(net_arch=[256, 256]),
         tensorboard_log=LOG_DIR,
         verbose=1
     )
-    
+
     '''
     model = MaskablePPO.load(
         RESUME_FROM,
@@ -55,13 +56,13 @@ def main():
     )
     '''
     checkpoint_callback = CheckpointCallback(
-        save_freq=15000,
+        save_freq=250000,
         save_path=CHECKPOINT_DIR,
         name_prefix="tetris_"
     )
 
     model.learn(
-        total_timesteps=3_500_000,
+        total_timesteps=10_000_000,
         callback=checkpoint_callback,
         #reset_num_timesteps=False
     )
