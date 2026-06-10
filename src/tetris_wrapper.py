@@ -1,7 +1,14 @@
-from hmac import new
+
+import warnings
 
 import gymnasium as gym
 import numpy as np
+
+warnings.filterwarnings(
+    "ignore",
+    message="pkg_resources is deprecated as an API.*"
+)
+
 import pygame
 
 import config
@@ -16,7 +23,7 @@ class TetrisEnv(gym.Env):
         self.observation_space = gym.spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(32,),
+            shape=(34,),
             dtype = np.float32
         )
 
@@ -171,6 +178,9 @@ class TetrisEnv(gym.Env):
                    height_after, bumpiness_after, game_over):
         line_rewards = [0, 5, 15, 50, 200]
         reward = line_rewards[lines_cleared]
+        if lines_cleared == 4:
+            reward += config.FAT_TET_BONUS
+
         reward += config.SURVIVAL_BONUS
 
         new_holes = holes_after - holes_before
@@ -179,6 +189,11 @@ class TetrisEnv(gym.Env):
         reward -= config.EXISTING_HOLES_PENALTY * holes_after
         reward -= config.HEIGHT_PENALTY * height_after
         reward -= config.BUMPINESS_PENALTY * bumpiness_after
+
+        near = self.near_complete_right_well_rows()
+        well = self.right_well_depth()
+        reward += config.NEAR_COMPLETE_BONUS * near
+        reward += config.RIGHT_WELL_BONUS * well
 
         if game_over:
             reward -= config.GAME_OVER_PENALTY
@@ -247,7 +262,8 @@ class TetrisEnv(gym.Env):
 
         obs.append(self.compute_bumpiness() / (config.BOARD_HEIGHT * 9))
         obs.append(self.aggregate_height() / (config.BOARD_HEIGHT * config.BOARD_WIDTH))
-
+        obs.append(self.right_well_depth() / config.BOARD_HEIGHT)
+        obs.append(self.near_complete_right_well_rows() / config.BOARD_HEIGHT)
         curr_arr = np.zeros(len(config.SHAPES))
         curr_arr[self.game.current_piece.shape_idx] = 1
         obs.extend(curr_arr)

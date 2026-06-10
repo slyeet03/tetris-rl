@@ -2,6 +2,7 @@
 
 import os
 import time
+import warnings
 
 import numpy as np
 import pygame
@@ -9,6 +10,10 @@ import torch
 from sb3_contrib import MaskablePPO
 from stable_baselines3.common.utils import obs_as_tensor
 
+warnings.filterwarnings(
+    "ignore",
+    message="pkg_resources is deprecated as an API.*"
+)
 import config
 import tetris as tet
 from tetris import Tetromino

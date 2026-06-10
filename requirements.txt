@@ -6,3 +6,4 @@ sb3-contrib
 tensorboard
 imageio[ffmpeg]
 torch
+optuna
