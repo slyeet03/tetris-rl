@@ -38,13 +38,13 @@ def main():
         policy="MlpPolicy",
         env=vec_env,
         n_steps=2048,
-        n_epochs=10,
-        batch_size=256,
+        n_epochs=4,
+        batch_size=512,
         learning_rate=3e-4,
-        gamma=0.999,
+        gamma=0.995,
         ent_coef=0.05,
         clip_range=0.2,
-        policy_kwargs=dict(net_arch=[256, 256]),
+        policy_kwargs=dict(net_arch=[512, 512]),
         tensorboard_log=LOG_DIR,
         verbose=1
     )
@@ -62,13 +62,13 @@ def main():
     )
     '''
     checkpoint_callback = CheckpointCallback(
-        save_freq=250000,
+        save_freq=500000,
         save_path=CHECKPOINT_DIR,
         name_prefix="tetris_"
     )
 
     model.learn(
-        total_timesteps=10_000_000,
+        total_timesteps=50_000_000,
         callback=checkpoint_callback,
         #reset_num_timesteps=False
     )

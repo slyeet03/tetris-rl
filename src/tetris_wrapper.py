@@ -1,4 +1,3 @@
-
 import warnings
 
 import gymnasium as gym
@@ -23,7 +22,7 @@ class TetrisEnv(gym.Env):
         self.observation_space = gym.spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(34,),
+            shape=(54,),
             dtype = np.float32
         )
 
@@ -178,8 +177,8 @@ class TetrisEnv(gym.Env):
                    height_after, bumpiness_after, game_over):
         line_rewards = [0, 5, 15, 50, 200]
         reward = line_rewards[lines_cleared]
-        if lines_cleared == 4:
-            reward += config.FAT_TET_BONUS
+#        if lines_cleared == 4:
+#            reward += config.FAT_TET_BONUS
 
         reward += config.SURVIVAL_BONUS
 
@@ -272,7 +271,12 @@ class TetrisEnv(gym.Env):
         next_arr[self.game.next_piece.shape_idx] = 1
         obs.extend(next_arr)
 
+        for y in range(config.BOARD_HEIGHT):
+            filled = sum(1 for x in range(config.BOARD_WIDTH) if self.game.grid[y][x] != 0)
+            obs.append(filled / config.BOARD_WIDTH)
+
         return np.array(obs, dtype=np.float32)
+
 
     def render(self):
         if self.render_mode:

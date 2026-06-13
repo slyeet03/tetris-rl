@@ -22,10 +22,10 @@ warnings.filterwarnings("ignore")
 logging.getLogger("stable_baselines3").setLevel(logging.ERROR)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-TRAIN_STEPS  = 1_000_000
+TRAIN_STEPS  = 5_000_000
 N_ENVS       = 8
 N_EVAL_GAMES = 30
-N_TRIALS     = 55
+N_TRIALS     = 20
 
 def mask_fn(env): return env.action_masks()
 
@@ -48,15 +48,15 @@ def evaluate(model):
 
 def set_config(trial):
     params = {
-        'SURVIVAL_BONUS':         trial.suggest_float("survival_bonus",          0.05, 4.0,  log=True),
-        'NEW_HOLES_PENALTY':      trial.suggest_float("new_holes_penalty",        0.5,  7.0),
-        'EXISTING_HOLES_PENALTY': trial.suggest_float("existing_holes_penalty",   0.005, 0.3, log=True),
-        'HEIGHT_PENALTY':         trial.suggest_float("height_penalty",           0.003, 0.1, log=True),
-        'BUMPINESS_PENALTY':      trial.suggest_float("bumpiness_penalty",        0.003, 0.15,log=True),
-        'GAME_OVER_PENALTY':      trial.suggest_float("game_over_penalty",        5.0,  80.0),
+        'SURVIVAL_BONUS':         trial.suggest_float("survival_bonus",          0.1, 5,  log=True),
+        'NEW_HOLES_PENALTY':      trial.suggest_float("new_holes_penalty",        0.01,  3),
+        'EXISTING_HOLES_PENALTY': trial.suggest_float("existing_holes_penalty",   0.001, 0.5, log=True),
+        'HEIGHT_PENALTY':         trial.suggest_float("height_penalty",           0.001, 0.5, log=True),
+        'BUMPINESS_PENALTY':      trial.suggest_float("bumpiness_penalty",        0.001, 0.5,log=True),
+        'GAME_OVER_PENALTY':      trial.suggest_int("game_over_penalty",        100,  500),
         'NEAR_COMPLETE_BONUS':    trial.suggest_float("near_complete_bonus",      0.0,   2.0),
-        'RIGHT_WELL_BONUS':       trial.suggest_float("right_well_bonus",         0.0,   1.0),
-        'FAT_TET_BONUS' :         trial.suggest_int("fat_tet_bonus",              100,   300),
+        'RIGHT_WELL_BONUS':       trial.suggest_float("right_well_bonus",         0.0,   2.0),
+#        'FAT_TET_BONUS' :         trial.suggest_int("fat_tet_bonus",              100,   300),
     }
     for k, v in params.items():
         setattr(config, k, v)
@@ -84,15 +84,15 @@ def objective(trial):
         model = MaskablePPO(
             policy="MlpPolicy",
             env=vec_env,
-            n_steps=512,
-            n_epochs=10,
-            batch_size=256,
-            learning_rate=3e-4,
-            gamma=0.999,
-            ent_coef=0.05,
+            n_steps=1024,
+            n_epochs=4,
+            batch_size=512,
+            learning_rate=1e-4,
+            gamma=0.99,
+            ent_coef=0.01,
             clip_range=0.2,
             policy_kwargs=dict(net_arch=[256, 256]),
-            verbose=1,
+            verbose=0,
         )
 
         model.learn(total_timesteps=TRAIN_STEPS)
