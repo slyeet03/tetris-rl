@@ -27,6 +27,7 @@ class Tetris:
         self.game_over = False
         self.score = 0
         self.lines = 0
+        self.pieces = 0
         
 
     def new_piece(self):
@@ -82,6 +83,7 @@ class Tetris:
         lines_cleared = self.clear_lines()
         self.score += lines_cleared * 100
         self.lines += lines_cleared
+        self.pieces += 1
         self.current_piece = self.next_piece
         self.next_piece = self.new_piece()
 

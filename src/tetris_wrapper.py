@@ -22,7 +22,7 @@ class TetrisEnv(gym.Env):
         self.observation_space = gym.spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(54,),
+            shape=(55,),
             dtype = np.float32
         )
 
@@ -173,6 +173,7 @@ class TetrisEnv(gym.Env):
                 count += 1
         return count
 
+    '''
     def compute_reward(self, lines_cleared, holes_before, holes_after,
                    height_after, bumpiness_after, game_over):
         line_rewards = [0, 5, 15, 50, 200]
@@ -198,6 +199,27 @@ class TetrisEnv(gym.Env):
             reward -= config.GAME_OVER_PENALTY
 
         return reward
+    '''
+
+    def compute_reward(self, lines_cleared, holes_before, holes_after,
+                   height_after, bumpiness_after, game_over, phase):
+        line_rewards = [0, 5, 15, 50, 200]
+        reward = line_rewards[lines_cleared]
+
+        reward += config.SURVIVAL_BONUS  
+
+        new_holes = holes_after - holes_before
+        if new_holes > 0:
+            hole_scale = 1.0 + 4.0 * (phase ** 2)
+            reward -= config.NEW_HOLES_PENALTY * hole_scale * new_holes
+
+        reward -= config.HEIGHT_PENALTY * (1.0 + 3.0 * phase) * height_after
+        reward -= config.BUMPINESS_PENALTY * (1.0 + 2.0 * phase) * bumpiness_after
+
+        if game_over:
+            reward -= config.GAME_OVER_PENALTY
+
+        return reward
 
     def step(self, action):
         placements = self.get_valid_placement()
@@ -214,6 +236,7 @@ class TetrisEnv(gym.Env):
         holes_after = self.count_holes()
         height_after = self.aggregate_height()
         bumpiness_after = self.compute_bumpiness()
+        phase = min(1.0, self.game.pieces / 80.0)
 
         reward = self.compute_reward(
             lines_cleared,
@@ -221,7 +244,8 @@ class TetrisEnv(gym.Env):
             holes_after,
             height_after,
             bumpiness_after,
-            self.game.game_over
+            self.game.game_over,
+            phase
         )
 
         return self.get_observation(), reward, self.game.game_over, False, {}
@@ -274,6 +298,9 @@ class TetrisEnv(gym.Env):
         for y in range(config.BOARD_HEIGHT):
             filled = sum(1 for x in range(config.BOARD_WIDTH) if self.game.grid[y][x] != 0)
             obs.append(filled / config.BOARD_WIDTH)
+
+        phase = min(1.0, self.game.pieces / 80.0)
+        obs.append(phase)
 
         return np.array(obs, dtype=np.float32)
 
