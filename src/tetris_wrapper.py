@@ -22,7 +22,7 @@ class TetrisEnv(gym.Env):
         self.observation_space = gym.spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(55,),
+            shape=(250,),
             dtype = np.float32
         )
 
@@ -203,15 +203,14 @@ class TetrisEnv(gym.Env):
 
     def compute_reward(self, lines_cleared, holes_before, holes_after,
                    height_after, bumpiness_after, game_over, phase):
-        line_rewards = [0, 5, 15, 50, 200]
+        line_rewards = [0, 15, 50, 150, 500]
         reward = line_rewards[lines_cleared]
 
-        reward += config.SURVIVAL_BONUS  
+        reward += config.SURVIVAL_BONUS * (1.0 - 0.6 * phase)
 
         new_holes = holes_after - holes_before
         if new_holes > 0:
-            hole_scale = 1.0 + 4.0 * (phase ** 2)
-            reward -= config.NEW_HOLES_PENALTY * hole_scale * new_holes
+            reward -= config.NEW_HOLES_PENALTY * new_holes
 
         reward -= config.HEIGHT_PENALTY * (1.0 + 3.0 * phase) * height_after
         reward -= config.BUMPINESS_PENALTY * (1.0 + 2.0 * phase) * bumpiness_after
@@ -283,6 +282,19 @@ class TetrisEnv(gym.Env):
                     col_holes += 1
             obs.append(col_holes / config.BOARD_HEIGHT)
 
+        for x in range(config.BOARD_WIDTH):
+            max_buried = 0
+            cells_above = 0
+            found_filled = False
+            for y in range(config.BOARD_HEIGHT):
+                if self.game.grid[y][x] != 0:
+                    found_filled = True
+                    cells_above += 1
+                elif found_filled:
+                    max_buried = max(max_buried, cells_above)
+                    cells_above = 0 
+            obs.append(max_buried / config.BOARD_HEIGHT)
+
         obs.append(self.compute_bumpiness() / (config.BOARD_HEIGHT * 9))
         obs.append(self.aggregate_height() / (config.BOARD_HEIGHT * config.BOARD_WIDTH))
         obs.append(self.right_well_depth() / config.BOARD_HEIGHT)
@@ -295,10 +307,14 @@ class TetrisEnv(gym.Env):
         next_arr[self.game.next_piece.shape_idx] = 1
         obs.extend(next_arr)
 
-        for y in range(config.BOARD_HEIGHT):
-            filled = sum(1 for x in range(config.BOARD_WIDTH) if self.game.grid[y][x] != 0)
-            obs.append(filled / config.BOARD_WIDTH)
+        next_next_arr = np.zeros(len(config.SHAPES))
+        next_next_arr[self.game.next_next_piece.shape_idx] = 1
+        obs.extend(next_next_arr)
 
+        for y in range(config.BOARD_HEIGHT):
+            for x in range(config.BOARD_WIDTH):
+                obs.append(1.0 if self.game.grid[y][x] != 0 else 0.0)
+        
         phase = min(1.0, self.game.pieces / 80.0)
         obs.append(phase)
 

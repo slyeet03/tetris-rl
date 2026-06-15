@@ -22,8 +22,9 @@ class Tetris:
         self.width = width
         self.height = height
         self.grid = [[0 for _ in range(width)] for _ in range(height)]
-        self.next_piece = self.new_piece()
         self.current_piece = self.new_piece()
+        self.next_piece = self.new_piece()
+        self.next_next_piece = self.new_piece()
         self.game_over = False
         self.score = 0
         self.lines = 0
@@ -85,7 +86,8 @@ class Tetris:
         self.lines += lines_cleared
         self.pieces += 1
         self.current_piece = self.next_piece
-        self.next_piece = self.new_piece()
+        self.next_piece = self.next_next_piece      
+        self.next_next_piece = self.new_piece()
 
         if not self.valid_move(self.current_piece,0,0,0):
             self.game_over = True

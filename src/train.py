@@ -4,7 +4,7 @@ import warnings
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common import vec_env
-from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
@@ -28,6 +28,18 @@ def make_env():
     env = ActionMasker(env,mask_fn)
     return env
 
+class EntropyScheduleCallback(BaseCallback):
+    def __init__(self, start_ent=0.05, end_ent=0.01, total_steps=50_000_000):
+        super().__init__()
+        self.start_ent = start_ent
+        self.end_ent = end_ent
+        self.total_steps = total_steps
+
+    def _on_step(self):
+        progress = self.num_timesteps / self.total_steps
+        self.model.ent_coef = max(self.end_ent, self.start_ent * (1.0 - progress))
+        return True
+
 def main():
     vec_env = make_vec_env(make_env, n_envs=8, vec_env_cls=SubprocVecEnv)
 
@@ -44,7 +56,7 @@ def main():
         gamma=0.995,
         ent_coef=0.05,
         clip_range=0.2,
-        policy_kwargs=dict(net_arch=[512, 512]),
+        policy_kwargs=dict(net_arch=[512, 512, 512]),
         tensorboard_log=LOG_DIR,
         verbose=1
     )
@@ -68,9 +80,8 @@ def main():
     )
 
     model.learn(
-        total_timesteps=50_000_000,
-        callback=checkpoint_callback,
-        #reset_num_timesteps=False
+    total_timesteps=50_000_000,
+    callback=[checkpoint_callback, EntropyScheduleCallback()],
     )
 
     model.save(os.path.join(MODEL_DIR,"tetris_ppo"))
