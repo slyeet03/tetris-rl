@@ -27,7 +27,8 @@ class TetrisEnv(gym.Env):
         )
 
         self.action_space = gym.spaces.Discrete(config.MAX_PLACEMENTS)
-        
+        self.cached_placements = None
+
         if render_mode == "yes":
             pygame.init()
             self.screen = pygame.display.set_mode((config.WIDTH, config.HEIGHT))
@@ -44,8 +45,10 @@ class TetrisEnv(gym.Env):
             config.BOARD_HEIGHT,
             self.np_random
         )
-
-        return self.get_observation(), {}
+        self.cached_placements = None
+        
+        mask = self.action_masks()
+        return self.get_observation(), {"action_mask": mask} # passing the info as mask
 
     def get_valid_placement(self):
         placements = []
@@ -60,7 +63,7 @@ class TetrisEnv(gym.Env):
             occupied = [
                 (i,j)
                 for i, row in enumerate (shape)
-                for j, cell in enumerate (row) 
+                for j, cell in enumerate (row)
                 if cell == '0'
             ]
 
@@ -221,7 +224,10 @@ class TetrisEnv(gym.Env):
         return reward
 
     def step(self, action):
-        placements = self.get_valid_placement()
+        if self.cached_placements is None:
+            self.cached_placements = self.get_valid_placement()
+
+        placements = self.cached_placements
         action = action % len(placements)
         rotation, column = placements[action]
 
@@ -247,18 +253,17 @@ class TetrisEnv(gym.Env):
             phase
         )
 
-        return self.get_observation(), reward, self.game.game_over, False, {}
+        next_mask = self.action_masks()
+
+        return self.get_observation(), reward, self.game.game_over, False, {"action_mask": next_mask}
 
     # to check what action indices are valid
     def action_masks(self):
-        placements = self.get_valid_placement()
-        num_valid = len(placements)
-
+        self._cached_placements = self.get_valid_placement()
+        num_valid = len(self._cached_placements)
+ 
         array = np.zeros(config.MAX_PLACEMENTS, dtype=bool)
-
-        for i in range(num_valid):
-            array[i] = True
-
+        array[:num_valid] = True
         return array
 
     # getting the states for the ppo
