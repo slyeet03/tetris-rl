@@ -202,8 +202,9 @@ class TetrisEnv(gym.Env):
             reward -= config.GAME_OVER_PENALTY
 
         return reward
-    '''
+    
 
+    phase
     def compute_reward(self, lines_cleared, holes_before, holes_after,
                    height_after, bumpiness_after, game_over, phase):
         line_rewards = [0, 15, 50, 150, 500]
@@ -222,6 +223,32 @@ class TetrisEnv(gym.Env):
             reward -= config.GAME_OVER_PENALTY
 
         return reward
+    '''
+    def compute_reward(self,lines_cleared, holes_before,holes_after,height_before,height_after,bumpiness_before,bumpiness_after,game_over):
+        reward = 0
+
+        line_rewards = [0,10,30,50,200]
+
+        new_holes = holes_after - holes_before
+        height_diff = height_after - height_before
+        bumpiness_diff = bumpiness_after - bumpiness_before
+
+        reward += line_rewards[lines_cleared]
+        reward += config.SURVIVAL_BONUS
+
+        if new_holes > 0:
+            reward -= config.NEW_HOLES_PENALTY * new_holes
+
+        if height_diff > 0:
+            reward -= config.HEIGHT_PENALTY_DIFF * height_diff
+        if bumpiness_diff > 0:
+            reward -= config.BUMPINESS_PENALTY_DIFF * bumpiness_diff
+   
+
+        if game_over:
+            reward -= config.GAME_OVER_PENALTY
+
+        return reward
 
     def step(self, action):
         if self.cached_placements is None:
@@ -231,13 +258,17 @@ class TetrisEnv(gym.Env):
         action = action % len(placements)
         rotation, column = placements[action]
 
+        # screenshot the board before placing any blocks
         holes_before = self.count_holes()
+        height_before = self.aggregate_height()
+        bumpiness_before = self.compute_bumpiness()
 
         self.game.current_piece.rotation = rotation
         self.game.current_piece.x = column
         self.game.current_piece.y = -2
         lines_cleared = self.game.hard_drop()
 
+        # screenshot the board after placing the blocks
         holes_after = self.count_holes()
         height_after = self.aggregate_height()
         bumpiness_after = self.compute_bumpiness()
@@ -247,10 +278,11 @@ class TetrisEnv(gym.Env):
             lines_cleared,
             holes_before,
             holes_after,
+            height_before,
             height_after,
+            bumpiness_before,
             bumpiness_after,
-            self.game.game_over,
-            phase
+            self.game.game_over
         )
 
         next_mask = self.action_masks()
@@ -259,8 +291,8 @@ class TetrisEnv(gym.Env):
 
     # to check what action indices are valid
     def action_masks(self):
-        self._cached_placements = self.get_valid_placement()
-        num_valid = len(self._cached_placements)
+        self.cached_placements = self.get_valid_placement()
+        num_valid = len(self.cached_placements)
  
         array = np.zeros(config.MAX_PLACEMENTS, dtype=bool)
         array[:num_valid] = True

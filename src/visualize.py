@@ -1,5 +1,4 @@
 # this file was made using AI -> i suck at visualization
-
 import os
 import time
 import warnings
@@ -7,8 +6,6 @@ import warnings
 import numpy as np
 import pygame
 import torch
-from sb3_contrib import MaskablePPO
-from stable_baselines3.common.utils import obs_as_tensor
 
 warnings.filterwarnings(
     "ignore",
@@ -16,19 +13,19 @@ warnings.filterwarnings(
 )
 import config
 import tetris as tet
-from tetris import Tetromino
+from DQN import QNetwork
 from tetris_wrapper import TetrisEnv
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR   = os.path.dirname(BASE_DIR)
-MODEL_PATH = os.path.join(ROOT_DIR, "models", "tetris_ppo.zip")
+MODEL_PATH = os.path.join(ROOT_DIR, "models", "dqn_per_tetris.pt")  # point this at your checkpoint
 
-GAME_W   = config.WIDTH 
+GAME_W   = config.WIDTH
 VIZ_W    = 440
 TOTAL_W  = GAME_W + VIZ_W
 TOTAL_H  = config.HEIGHT
 
-STEP_DELAY = 0.5  
+STEP_DELAY = 0.5
 
 BG_PANEL    = (18, 18, 28)
 COL_ACCENT  = (0, 200, 255)
@@ -45,24 +42,32 @@ def lerp_color(a, b, t):
     return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
 
-def get_policy_info(model, obs, action_masks):
-    obs_t  = obs_as_tensor(np.array([obs]), model.device)
-    mask_t = torch.BoolTensor([action_masks]).to(model.device)
+def get_q_info(q_net, obs, action_mask, device):
+    """Runs the Q-network on obs and returns:
+       - probs: a softmax over the masked Q-values, used ONLY for the
+         heatmap / bar visualization below. DQN never actually samples
+         from this -- it always argmaxes -- this just shows how much
+         better the chosen placement looked relative to the others.
+       - value: max masked Q-value, the closest DQN analog to a critic's
+         state-value estimate (there's no separate value head here).
+       - q_values: the raw, unmasked network output, kept for reference.
+    """
+    obs_t = torch.as_tensor(np.array(obs), dtype=torch.float32, device=device).unsqueeze(0)
 
     with torch.no_grad():
-        feats          = model.policy.extract_features(obs_t)
-        lat_pi, lat_vf = model.policy.mlp_extractor(feats)
-        value          = model.policy.value_net(lat_vf).squeeze().item()
-        logits         = model.policy.action_net(lat_pi).squeeze(0)
+        q_values = q_net(obs_t).squeeze(0).cpu().numpy()
 
-        # mask invalid placements before softmax
-        logits[~mask_t.squeeze(0)] = -1e9
-        probs = torch.softmax(logits, dim=0).cpu().numpy()
+    masked_q = np.where(action_mask, q_values, -np.inf)
+    value = float(masked_q.max())
 
-    return probs, value
+    exp_q = np.exp(masked_q - masked_q.max())  # -inf entries exponentiate to 0
+    probs = exp_q / exp_q.sum()
+
+    return probs, value, q_values
 
 
 def get_ghost_cells(game, rotation, x_pos):
+    from tetris import Tetromino
     piece = game.current_piece
     temp  = Tetromino(x_pos, -2, piece.shape, game.rng, piece.shape_idx)
     temp.rotation = rotation
@@ -124,25 +129,24 @@ def draw_viz_panel(screen, obs, placements, probs, chosen_idx, state_val,
     W = VIZ_W - 20   # usable content width
     cy = 10
 
-    # Critic value
-    # Colour: red (<0 / losing) → green (high positive = confident it'll survive)
+    # Value estimate: max masked Q (DQN has no separate critic head)
     t    = min(1.0, max(0.0, (state_val + 150) / 650))
     vcol = lerp_color(COL_BAD, COL_GOOD, t)
     screen.blit(font_lg.render(f"V  {state_val:+.1f}", True, vcol), (px, cy))
     cy += 38
-    screen.blit(font_sm.render("critic state-value  (red = bad board, green = good)", True, COL_DIM), (px, cy))
+    screen.blit(font_sm.render("max-Q value estimate  (red = bad board, green = good)", True, COL_DIM), (px, cy))
     cy += 20
 
-    # Policy entropy
-    # H = -Σ p log p over valid placements
-    # Low entropy → model is sure.  High → confused, exploring.
+    # Entropy of the softmax-over-Q visualization (NOT a real policy
+    # distribution -- DQN always argmaxes -- this is just "how close
+    # was the runner-up placement's Q-value to the winner's".
     p_valid = probs[:len(placements)]
     p_valid = p_valid[p_valid > 1e-9]
     entropy = float(-np.sum(p_valid * np.log(p_valid)))
     ecol    = lerp_color(COL_GOOD, COL_BAD, min(1.0, entropy / 3.0))
     screen.blit(font_md.render(f"H  {entropy:.2f} nats", True, ecol), (px, cy))
     cy += 26
-    screen.blit(font_sm.render("policy entropy  (↓ decisive  ↑ uncertain)", True, COL_DIM), (px, cy))
+    screen.blit(font_sm.render("Q-value spread  (↓ clear winner  ↑ close call)", True, COL_DIM), (px, cy))
     cy += 20
 
     pygame.draw.line(screen, COL_DIM, (px, cy), (px + W, cy))
@@ -246,9 +250,20 @@ def draw_viz_panel(screen, obs, placements, probs, chosen_idx, state_val,
 def main():
     global STEP_DELAY
 
+    device = torch.device(
+        "cuda" if torch.cuda.is_available()
+        else "mps" if torch.backends.mps.is_available()
+        else "cpu"
+    )
+
     print(f"Loading model from {MODEL_PATH}")
-    env   = TetrisEnv(render_mode=None)   # we own the pygame window
-    model = MaskablePPO.load(MODEL_PATH, env=env)
+    env = TetrisEnv(render_mode=None)   # we own the pygame window
+
+    obs_dim   = env.observation_space.shape[0]
+    n_actions = env.action_space.n
+    q_net     = QNetwork(obs_dim, n_actions).to(device)
+    q_net.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    q_net.eval()
 
     pygame.init()
     screen  = pygame.display.set_mode((TOTAL_W, TOTAL_H))
@@ -263,8 +278,10 @@ def main():
 
     while running:
         game_number += 1
-        obs, _ = env.reset()
-        done   = False
+        obs, info  = env.reset()
+        masks      = info["action_mask"]
+        placements = env.cached_placements
+        done       = False
         pygame.display.set_caption(f"Tetris AI Visualizer — Game {game_number}")
 
         while not done and running:
@@ -279,16 +296,14 @@ def main():
                         STEP_DELAY = min(2.0, STEP_DELAY + 0.05)
                         print(f"delay → {STEP_DELAY:.2f}s")
 
-            # ── Policy inference (before we step) ─────────────────────────────
-            # We run inference on the CURRENT obs so the heatmap and stats
-            # show the network's reasoning for the piece it's about to place.
-            masks         = env.action_masks()
-            probs, val    = get_policy_info(model, obs, masks)
-            placements    = env.get_valid_placement()
-            action, _     = model.predict(obs, deterministic=True, action_masks=masks)
-            chosen_idx    = action % len(placements)
+            # ── Q-network inference (before we step) ───────────────────────
+            # Run on the CURRENT obs so the heatmap/panel show the reasoning
+            # behind the piece that's about to be placed.
+            probs, val, q_values = get_q_info(q_net, obs, masks, device)
+            action     = int(np.argmax(np.where(masks, q_values, -np.inf)))
+            chosen_idx = action  # masking guarantees this already indexes `placements`
 
-            # ── Render game board ─────────────────────────────────────────────
+            # ── Render game board ───────────────────────────────────────────
             screen.fill(config.BLACK)
 
             pygame.draw.rect(screen, config.WHITE,
@@ -319,6 +334,8 @@ def main():
 
             # ── Step ──────────────────────────────────────────────────────────
             obs, reward, done, truncated, info = env.step(action)
+            masks      = info["action_mask"]
+            placements = env.cached_placements
 
         if done:
             print(f"Game {game_number:3d} — Score: {env.game.score:5d} | Lines: {env.game.lines:3d}")
