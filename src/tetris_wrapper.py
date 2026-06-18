@@ -1,4 +1,5 @@
 import warnings
+from hmac import new
 
 import gymnasium as gym
 import numpy as np
@@ -22,7 +23,7 @@ class TetrisEnv(gym.Env):
         self.observation_space = gym.spaces.Box(
             low=0.0,
             high=1.0,
-            shape=(250,),
+            shape=(49,),
             dtype = np.float32
         )
 
@@ -140,14 +141,14 @@ class TetrisEnv(gym.Env):
 
     def count_wells(self):
         heights = []
-        for x in range(config.BOARD_WIDTH-1):
+        for x in range(config.BOARD_WIDTH):
             height = 0
             for y in range(config.BOARD_HEIGHT):
                 if self.game.grid[y][x] != 0:
                     height = config.BOARD_HEIGHT - y
                     break
             heights.append(height)
-
+ 
         wells = 0
         for i in range(len(heights)):
             left  = heights[i - 1] if i > 0 else config.BOARD_HEIGHT
@@ -227,7 +228,7 @@ class TetrisEnv(gym.Env):
     def compute_reward(self,lines_cleared, holes_before,holes_after,height_before,height_after,bumpiness_before,bumpiness_after,game_over):
         reward = 0
 
-        line_rewards = [0,10,30,50,200]
+        line_rewards = [0,10,80,150,500]
 
         new_holes = holes_after - holes_before
         height_diff = height_after - height_before
@@ -238,12 +239,26 @@ class TetrisEnv(gym.Env):
 
         if new_holes > 0:
             reward -= config.NEW_HOLES_PENALTY * new_holes
+        elif new_holes < 0:
+            reward += 0.5 * config.NEW_HOLES_PENALTY * abs(new_holes)
 
         if height_diff > 0:
             reward -= config.HEIGHT_PENALTY_DIFF * height_diff
+        elif height_diff < 0:
+            reward += 0.5 * config.HEIGHT_PENALTY_DIFF * abs(height_diff)
+
         if bumpiness_diff > 0:
             reward -= config.BUMPINESS_PENALTY_DIFF * bumpiness_diff
-   
+        elif bumpiness_diff < 0:
+            reward += 0.5 * config.BUMPINESS_PENALTY_DIFF * abs(bumpiness_diff)
+ 
+        '''
+        reward -= config.EXISTING_HOLES_PENALTY * holes_after
+        reward -= config.HEIGHT_PENALTY * height_after
+        reward -= config.BUMPINESS_PENALTY * bumpiness_after
+        '''
+
+        reward -= config.WELL_PENALTY * self.count_wells()
 
         if game_over:
             reward -= config.GAME_OVER_PENALTY
@@ -334,8 +349,7 @@ class TetrisEnv(gym.Env):
 
         obs.append(self.compute_bumpiness() / (config.BOARD_HEIGHT * 9))
         obs.append(self.aggregate_height() / (config.BOARD_HEIGHT * config.BOARD_WIDTH))
-        obs.append(self.right_well_depth() / config.BOARD_HEIGHT)
-        obs.append(self.near_complete_right_well_rows() / config.BOARD_HEIGHT)
+        obs.append(self.count_wells() / (config.BOARD_HEIGHT * config.BOARD_WIDTH))
         curr_arr = np.zeros(len(config.SHAPES))
         curr_arr[self.game.current_piece.shape_idx] = 1
         obs.extend(curr_arr)
@@ -348,10 +362,6 @@ class TetrisEnv(gym.Env):
         next_next_arr[self.game.next_next_piece.shape_idx] = 1
         obs.extend(next_next_arr)
 
-        for y in range(config.BOARD_HEIGHT):
-            for x in range(config.BOARD_WIDTH):
-                obs.append(1.0 if self.game.grid[y][x] != 0 else 0.0)
-        
         phase = min(1.0, self.game.pieces / 80.0)
         obs.append(phase)
 

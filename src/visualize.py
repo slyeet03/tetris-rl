@@ -18,8 +18,7 @@ from tetris_wrapper import TetrisEnv
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR   = os.path.dirname(BASE_DIR)
-MODEL_PATH = os.path.join(ROOT_DIR, "models", "dqn_per_tetris.pt")  # point this at your checkpoint
-
+MODEL_PATH = os.path.join(ROOT_DIR, "models", "dqn_per_tetris.pt")  
 GAME_W   = config.WIDTH
 VIZ_W    = 440
 TOTAL_W  = GAME_W + VIZ_W

@@ -46,6 +46,7 @@ def train(num_steps=config.DQN_NUM_STEPS,
     episode_reward = 0.0 # reward for current game
     episode_count = 0 # number of completed games
     recent_rewards = deque(maxlen=50) # rewards from last 50 games
+    recent_lines = deque(maxlen=50) # lines cleared in last 50 games
  
     # training loop
     for step in range(1, num_steps + 1):
@@ -75,6 +76,7 @@ def train(num_steps=config.DQN_NUM_STEPS,
         if done:
             episode_count += 1
             recent_rewards.append(episode_reward)
+            recent_lines.append(env.game.lines)
             episode_reward = 0.0
             obs, info = env.reset()
             mask = info["action_mask"]
@@ -82,9 +84,11 @@ def train(num_steps=config.DQN_NUM_STEPS,
         # logging stuff
         if step % log_every == 0:
             avg_reward = np.mean(recent_rewards) if recent_rewards else 0.0
+            avg_lines = np.mean(recent_lines) if recent_lines else 0.0
             print(f"step {step} | episodes {episode_count} | "
                   f"epsilon {epsilon:.3f} | beta {beta:.3f} | "
                   f"avg_reward(last50) {avg_reward:.2f} | "
+                  f"avg_lines(last50) {avg_lines:.1f} | "
                   f"buffer {len(agent.buffer)}")
             torch.save(agent.q_net.state_dict(), checkpoint_path)
  
