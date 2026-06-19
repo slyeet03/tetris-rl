@@ -1,9 +1,5 @@
 pygame
 numpy
-gymnasium
-stable-baselines3
-sb3-contrib
 tensorboard
 imageio[ffmpeg]
 torch
-optuna

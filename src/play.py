@@ -19,7 +19,7 @@ BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR   = os.path.dirname(BASE_DIR)
 MODEL_PATH = os.path.join(ROOT_DIR, "models", "dqn_per_tetris.pt")
 
-STEP_DELAY = 0.05
+STEP_DELAY = 0.1
 
 
 def select_best_candidate(v_net, candidates, gamma, device):
