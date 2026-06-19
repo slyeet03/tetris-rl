@@ -34,14 +34,12 @@ def train(num_steps=config.DQN_NUM_STEPS,
     print("Using device:", device)
 
     env = TetrisEnv(render_mode=None)
-    obs_dim = env.observation_space.shape[0]
-    n_actions = env.action_space.n
+     
+    agent = DQNAgent(config.AFTERSTATE_DIM, device, lr=lr, gamma=gamma,
+                      buffer_size=buffer_size, alpha=alpha,
+                      max_candidates=config.MAX_PLACEMENTS)
  
-    agent = DQNAgent(obs_dim, n_actions, device, lr=lr, gamma=gamma,
-                      buffer_size=buffer_size, alpha=alpha)
- 
-    obs, info = env.reset()
-    mask = info["action_mask"]
+    candidates = env.reset() 
  
     episode_reward = 0.0 # reward for current game
     episode_count = 0 # number of completed games
@@ -55,14 +53,21 @@ def train(num_steps=config.DQN_NUM_STEPS,
         beta = linear_schedule(beta_start, beta_end,
                                 beta_anneal_steps, step)
  
-        action = agent.select_action(obs, mask, epsilon)
-        next_obs, reward, done, _, info = env.step(action)
-        next_mask = info["action_mask"]
+        action_idx = agent.select_candidate(candidates, epsilon)
+        chosen = candidates[action_idx]
  
-        agent.buffer.push(obs, action, reward, next_obs, float(done), next_mask)
+        # actually play the chosen placement
+        env.apply_placement(chosen["rotation"], chosen["x_pos"])
  
-        obs = next_obs
-        mask = next_mask
+        reward = chosen["reward"]
+        done = chosen["done"]
+        features = chosen["features"]
+ 
+        next_candidates = [] if done else env.get_candidates()
+        next_features_padded, next_mask = agent.pad_candidates(next_candidates)
+ 
+        agent.buffer.push(features, reward, next_features_padded, next_mask, float(done))
+ 
         episode_reward += reward
 
         # waiting for replay buffer to be filled, else collect experience not learn
@@ -78,8 +83,9 @@ def train(num_steps=config.DQN_NUM_STEPS,
             recent_rewards.append(episode_reward)
             recent_lines.append(env.game.lines)
             episode_reward = 0.0
-            obs, info = env.reset()
-            mask = info["action_mask"]
+            candidates = env.reset()
+        else:
+            candidates=next_candidates
 
         # logging stuff
         if step % log_every == 0:
@@ -90,9 +96,9 @@ def train(num_steps=config.DQN_NUM_STEPS,
                   f"avg_reward(last50) {avg_reward:.2f} | "
                   f"avg_lines(last50) {avg_lines:.1f} | "
                   f"buffer {len(agent.buffer)}")
-            torch.save(agent.q_net.state_dict(), checkpoint_path)
+            torch.save(agent.v_net.state_dict(), checkpoint_path)
  
-    torch.save(agent.q_net.state_dict(), checkpoint_path)
+    torch.save(agent.v_net.state_dict(), checkpoint_path)
     print("training complete, final model saved to", checkpoint_path)
  
  
