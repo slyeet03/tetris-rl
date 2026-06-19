@@ -230,19 +230,21 @@ class TetrisEnv:
         return False
 
     # input for the network
-    def afterstate_features(self, grid, lines_cleared, next_piece_idx, next_next_piece_idx):
+    def build_afterstate_features(self, grid, lines_cleared, next_piece_idx, next_next_piece_idx):
         heights=[]
         holes_per_col=[]
-        for x in range(config.BOARD_HEIGHT):
+        for x in range(config.BOARD_WIDTH):
             height=0
             found_filled = False
             col_holes = 0
+            
             for y in range(config.BOARD_HEIGHT):
                 if grid[y][x] != 0:
                     if not found_filled:
                         height = config.BOARD_HEIGHT - y
 
                     found_filled = True
+             
                 elif found_filled:
                     col_holes += 1
 
