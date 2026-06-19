@@ -13,12 +13,12 @@ warnings.filterwarnings(
 )
 import config
 import tetris as tet
-from DQN import QNetwork
+from DQN import ValueNetwork
 from tetris_wrapper import TetrisEnv
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR   = os.path.dirname(BASE_DIR)
-MODEL_PATH = os.path.join(ROOT_DIR, "models", "dqn_per_tetris.pt")  
+MODEL_PATH = os.path.join(ROOT_DIR, "models", "dqn_per_tetris.pt")
 GAME_W   = config.WIDTH
 VIZ_W    = 440
 TOTAL_W  = GAME_W + VIZ_W
@@ -35,34 +35,58 @@ COL_TEXT    = (210, 210, 210)
 COL_DIM     = (105, 105, 128)
 COL_CHOSEN  = (50, 255, 50)
 
+N_COLS  = config.BOARD_WIDTH
+N_SHAPES = len(config.SHAPES)
+
+# layout of build_afterstate_features() in tetris_wrapper.py:
+#   [0:N_COLS)                 heights
+#   [N_COLS:2*N_COLS)          holes per column
+#   2*N_COLS                   bumpiness
+#   2*N_COLS+1                 aggregate height
+#   2*N_COLS+2                 wells
+#   [2*N_COLS+3 : 2*N_COLS+8)  lines-cleared one-hot (5)
+#   next N_SHAPES               current/next piece one-hot
+#   next N_SHAPES               next-next piece one-hot
+_HEIGHTS_SLICE   = slice(0, N_COLS)
+_HOLES_SLICE     = slice(N_COLS, 2 * N_COLS)
+_BUMPINESS_IDX   = 2 * N_COLS
+_AGG_HEIGHT_IDX  = 2 * N_COLS + 1
+_WELLS_IDX       = 2 * N_COLS + 2
+_LINES_SLICE     = slice(2 * N_COLS + 3, 2 * N_COLS + 8)
+_PIECE_SLICE     = slice(2 * N_COLS + 8, 2 * N_COLS + 8 + N_SHAPES)
+_NEXT_PIECE_SLICE = slice(2 * N_COLS + 8 + N_SHAPES, 2 * N_COLS + 8 + 2 * N_SHAPES)
+
 
 def lerp_color(a, b, t):
     t = max(0.0, min(1.0, t))
     return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
 
 
-def get_q_info(q_net, obs, action_mask, device):
-    """Runs the Q-network on obs and returns:
-       - probs: a softmax over the masked Q-values, used ONLY for the
-         heatmap / bar visualization below. DQN never actually samples
-         from this -- it always argmaxes -- this just shows how much
-         better the chosen placement looked relative to the others.
-       - value: max masked Q-value, the closest DQN analog to a critic's
-         state-value estimate (there's no separate value head here).
-       - q_values: the raw, unmasked network output, kept for reference.
+def get_value_info(v_net, candidates, gamma, device):
+    """Scores every candidate afterstate the same way DQNAgent.select_candidate
+       does, and returns extra info for the visualization:
+         - probs: softmax over the candidates' scores, used ONLY for the
+           heatmap / bar viz below. DQN never samples from this -- it always
+           argmaxes -- this just shows how much better the chosen placement
+           looked relative to the others.
+         - scores: reward + gamma * V(afterstate) * (1 - done) for every
+           candidate. This is exactly what selection ranks on.
+         - values: raw V(afterstate) from the network, kept for reference.
     """
-    obs_t = torch.as_tensor(np.array(obs), dtype=torch.float32, device=device).unsqueeze(0)
+    feats = np.stack([c["features"] for c in candidates]).astype(np.float32)
+    rewards = np.array([c["reward"] for c in candidates], dtype=np.float32)
+    dones = np.array([c["done"] for c in candidates], dtype=np.float32)
 
     with torch.no_grad():
-        q_values = q_net(obs_t).squeeze(0).cpu().numpy()
+        feats_t = torch.as_tensor(feats, dtype=torch.float32, device=device)
+        values = v_net(feats_t).cpu().numpy()
 
-    masked_q = np.where(action_mask, q_values, -np.inf)
-    value = float(masked_q.max())
+    scores = rewards + gamma * values * (1.0 - dones)
 
-    exp_q = np.exp(masked_q - masked_q.max())  # -inf entries exponentiate to 0
-    probs = exp_q / exp_q.sum()
+    exp_s = np.exp(scores - scores.max())
+    probs = exp_s / exp_s.sum()
 
-    return probs, value, q_values
+    return probs, scores, values
 
 
 def get_ghost_cells(game, rotation, x_pos):
@@ -82,7 +106,6 @@ def get_ghost_cells(game, rotation, x_pos):
                 if 0 <= bx < game.width and 0 <= by < game.height:
                     cells.append((bx, by))
     return cells
-
 
 
 def draw_placement_heatmap(screen, game, placements, probs, chosen_idx):
@@ -121,37 +144,37 @@ def draw_section_title(screen, text, font, x, y):
     return y + 22
 
 
-def draw_viz_panel(screen, obs, placements, probs, chosen_idx, state_val,
+def draw_viz_panel(screen, chosen_features, placements, probs, chosen_idx, state_val,
                    font_lg, font_md, font_sm, px):
 
     pygame.draw.rect(screen, BG_PANEL, (GAME_W, 0, VIZ_W, TOTAL_H))
     W = VIZ_W - 20   # usable content width
     cy = 10
 
-    # Value estimate: max masked Q (DQN has no separate critic head)
+    # Value estimate: V(afterstate) for the chosen placement
     t    = min(1.0, max(0.0, (state_val + 150) / 650))
     vcol = lerp_color(COL_BAD, COL_GOOD, t)
     screen.blit(font_lg.render(f"V  {state_val:+.1f}", True, vcol), (px, cy))
     cy += 38
-    screen.blit(font_sm.render("max-Q value estimate  (red = bad board, green = good)", True, COL_DIM), (px, cy))
+    screen.blit(font_sm.render("V(afterstate) for chosen placement  (red = bad board, green = good)", True, COL_DIM), (px, cy))
     cy += 20
 
-    # Entropy of the softmax-over-Q visualization (NOT a real policy
-    # distribution -- DQN always argmaxes -- this is just "how close
-    # was the runner-up placement's Q-value to the winner's".
+    # Entropy of the softmax-over-score visualization (NOT a real policy
+    # distribution -- selection always argmaxes -- this is just "how close
+    # was the runner-up placement's score to the winner's".
     p_valid = probs[:len(placements)]
     p_valid = p_valid[p_valid > 1e-9]
     entropy = float(-np.sum(p_valid * np.log(p_valid)))
     ecol    = lerp_color(COL_GOOD, COL_BAD, min(1.0, entropy / 3.0))
     screen.blit(font_md.render(f"H  {entropy:.2f} nats", True, ecol), (px, cy))
     cy += 26
-    screen.blit(font_sm.render("Q-value spread  (↓ clear winner  ↑ close call)", True, COL_DIM), (px, cy))
+    screen.blit(font_sm.render("score spread  (↓ clear winner  ↑ close call)", True, COL_DIM), (px, cy))
     cy += 20
 
     pygame.draw.line(screen, COL_DIM, (px, cy), (px + W, cy))
     cy += 10
 
-    # Top placements 
+    # Top placements
     cy = draw_section_title(screen, "TOP PLACEMENTS", font_sm, px, cy)
     n      = len(placements)
     ranked = sorted(range(n), key=lambda i: probs[i], reverse=True)[:6]
@@ -164,7 +187,7 @@ def draw_viz_panel(screen, obs, placements, probs, chosen_idx, state_val,
         c = COL_CHOSEN if is_chosen else COL_TEXT
 
         marker = "▶" if is_chosen else " "
-        screen.blit(font_sm.render(f"{marker} rot={rot}  col={col:+d}", True, c), (px, cy))
+        screen.blit(font_sm.render(f"{marker} rot={rot}  x={col:+d}", True, c), (px, cy))
         pct_surf = font_sm.render(f"{prob * 100:.1f}%", True, c)
         screen.blit(pct_surf, (px + W - pct_surf.get_width(), cy))
 
@@ -177,27 +200,34 @@ def draw_viz_panel(screen, obs, placements, probs, chosen_idx, state_val,
     pygame.draw.line(screen, COL_DIM, (px, cy), (px + W, cy))
     cy += 10
 
-        # Observation feature bars
-    cy = draw_section_title(screen, "OBSERVATION FEATURES", font_sm, px, cy)
+    # Chosen-afterstate feature bars
+    cy = draw_section_title(screen, "CHOSEN AFTERSTATE FEATURES", font_sm, px, cy)
 
-    # scalar board metrics
+    obs = chosen_features
+
     screen.blit(
-        font_sm.render(f"Bumpiness: {obs[20]:.3f}", True, COL_TEXT),
+        font_sm.render(f"Bumpiness: {obs[_BUMPINESS_IDX]:.3f}", True, COL_TEXT),
         (px, cy)
     )
     cy += 18
 
     screen.blit(
-        font_sm.render(f"Aggregate Height: {obs[21]:.3f}", True, COL_TEXT),
+        font_sm.render(f"Aggregate Height: {obs[_AGG_HEIGHT_IDX]:.3f}", True, COL_TEXT),
+        (px, cy)
+    )
+    cy += 18
+
+    screen.blit(
+        font_sm.render(f"Wells: {obs[_WELLS_IDX]:.3f}", True, COL_TEXT),
         (px, cy)
     )
     cy += 24
 
     groups = [
-        ("Column heights [0-9]", obs[0:10], COL_WARN),
-        ("Column holes [10-19]", obs[10:20], COL_BAD),
-        ("Current piece [22-26]", obs[22:27], (190, 95, 255)),
-        ("Next piece [27-31]", obs[27:32], (255, 145, 45)),
+        (f"Column heights [0-{N_COLS-1}]", obs[_HEIGHTS_SLICE], COL_WARN),
+        (f"Column holes [{N_COLS}-{2*N_COLS-1}]", obs[_HOLES_SLICE], COL_BAD),
+        ("Current piece one-hot", obs[_PIECE_SLICE], (190, 95, 255)),
+        ("Next piece one-hot", obs[_NEXT_PIECE_SLICE], (255, 145, 45)),
     ]
 
     remaining_h = TOTAL_H - cy - 30
@@ -239,7 +269,7 @@ def draw_viz_panel(screen, obs, placements, probs, chosen_idx, state_val,
 
         cy += BAR_MAX_H + 4
 
-    # Footer 
+    # Footer
     screen.blit(
         font_sm.render(f"↑/↓ speed  |  delay={STEP_DELAY:.2f}s", True, COL_DIM),
         (px, TOTAL_H - 18),
@@ -258,11 +288,11 @@ def main():
     print(f"Loading model from {MODEL_PATH}")
     env = TetrisEnv(render_mode=None)   # we own the pygame window
 
-    obs_dim   = env.observation_space.shape[0]
-    n_actions = env.action_space.n
-    q_net     = QNetwork(obs_dim, n_actions).to(device)
-    q_net.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-    q_net.eval()
+    v_net = ValueNetwork(config.AFTERSTATE_DIM).to(device)
+    v_net.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    v_net.eval()
+
+    gamma = config.DQN_GAMMA
 
     pygame.init()
     screen  = pygame.display.set_mode((TOTAL_W, TOTAL_H))
@@ -277,13 +307,11 @@ def main():
 
     while running:
         game_number += 1
-        obs, info  = env.reset()
-        masks      = info["action_mask"]
-        placements = env.cached_placements
+        candidates = env.reset()
         done       = False
         pygame.display.set_caption(f"Tetris AI Visualizer — Game {game_number}")
 
-        while not done and running:
+        while not done and running and candidates:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
@@ -295,12 +323,11 @@ def main():
                         STEP_DELAY = min(2.0, STEP_DELAY + 0.05)
                         print(f"delay → {STEP_DELAY:.2f}s")
 
-            # ── Q-network inference (before we step) ───────────────────────
-            # Run on the CURRENT obs so the heatmap/panel show the reasoning
-            # behind the piece that's about to be placed.
-            probs, val, q_values = get_q_info(q_net, obs, masks, device)
-            action     = int(np.argmax(np.where(masks, q_values, -np.inf)))
-            chosen_idx = action  # masking guarantees this already indexes `placements`
+            # ── Value-network inference over every candidate afterstate ────
+            probs, scores, values = get_value_info(v_net, candidates, gamma, device)
+            chosen_idx = int(np.argmax(scores))
+            chosen     = candidates[chosen_idx]
+            placements = [(c["rotation"], c["x_pos"]) for c in candidates]
 
             # ── Render game board ───────────────────────────────────────────
             screen.fill(config.BLACK)
@@ -324,17 +351,17 @@ def main():
             draw_placement_heatmap(screen, env.game, placements, probs, chosen_idx)
 
             # ── Render neural network panel ───────────────────────────────────
-            draw_viz_panel(screen, obs, placements, probs, chosen_idx, val,
-                           font_lg, font_md, font_sm, PX)
+            draw_viz_panel(screen, chosen["features"], placements, probs, chosen_idx,
+                           values[chosen_idx], font_lg, font_md, font_sm, PX)
 
             pygame.display.flip()
             clk.tick(60)
             time.sleep(STEP_DELAY)
 
-            # ── Step ──────────────────────────────────────────────────────────
-            obs, reward, done, truncated, info = env.step(action)
-            masks      = info["action_mask"]
-            placements = env.cached_placements
+            # ── Apply the chosen placement (this is the actual env step) ───
+            env.apply_placement(chosen["rotation"], chosen["x_pos"])
+            done = chosen["done"]
+            candidates = [] if done else env.get_candidates()
 
         if done:
             print(f"Game {game_number:3d} — Score: {env.game.score:5d} | Lines: {env.game.lines:3d}")

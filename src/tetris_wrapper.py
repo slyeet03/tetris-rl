@@ -1,6 +1,4 @@
-import enum
 import warnings
-from re import T
 
 import numpy as np
 
@@ -88,22 +86,6 @@ class TetrisEnv:
         return sum(abs(heights[i] - heights[i+1]) for i in range(len(heights)-1))
     
 
-    def column_height_std(self, grid=None):
-        if grid is None:
-            grid = self.game.grid
-
-        heights = []
-        for x in range(config.BOARD_WIDTH):
-            height = 0
-            for y in range(config.BOARD_HEIGHT):
-                if self.game.grid[y][x] != 0:
-                    height = config.BOARD_HEIGHT - y
-                    break
-            heights.append(height)
-        mean = sum(heights) / len(heights)
-        variance = sum((h - mean) ** 2 for h in heights) / len(heights)
-        return variance ** 0.5
-
     def count_wells(self, grid=None):
         if grid is None:
             grid = self.game.grid
@@ -126,24 +108,8 @@ class TetrisEnv:
                 wells += depth
         return wells
 
-    def right_well_depth(self):
-        h8, h9 = 0, 0
-        for y in range(config.BOARD_HEIGHT):
-            if self.game.grid[y][8] != 0:
-                h8 = config.BOARD_HEIGHT - y
-                break
-        for y in range(config.BOARD_HEIGHT):
-            if self.game.grid[y][9] != 0:
-                h9 = config.BOARD_HEIGHT - y
-                break
-        return max(0, h8 - h9)
-
-    def near_complete_right_well_rows(self):
-        count = 0
-        for y in range(config.BOARD_HEIGHT):
-            if all(self.game.grid[y][x] != 0 for x in range(9)) and self.game.grid[y][9] == 0:
-                count += 1
-        return count
+    
+    
 
     
     def compute_reward(self,lines_cleared, holes_before,holes_after,height_before,height_after,bumpiness_before,bumpiness_after,game_over,grid_after=None):
@@ -237,33 +203,33 @@ class TetrisEnv:
             height=0
             found_filled = False
             col_holes = 0
-            
+           
             for y in range(config.BOARD_HEIGHT):
                 if grid[y][x] != 0:
                     if not found_filled:
                         height = config.BOARD_HEIGHT - y
 
                     found_filled = True
-             
+           
                 elif found_filled:
                     col_holes += 1
 
             heights.append(height / config.BOARD_HEIGHT)
             holes_per_col.append(col_holes / config.BOARD_HEIGHT)
- 
+
         bumpiness = self.compute_bumpiness(grid) / (config.BOARD_HEIGHT * (config.BOARD_WIDTH - 1))
         agg_height = self.aggregate_height(grid) / (config.BOARD_HEIGHT * config.BOARD_WIDTH)
         wells = self.count_wells(grid) / (config.BOARD_HEIGHT * config.BOARD_WIDTH)
- 
+
         lines_onehot = np.zeros(5, dtype=np.float32)
         lines_onehot[min(lines_cleared, 4)] = 1.0
- 
+
         piece_onehot = np.zeros(len(config.SHAPES), dtype=np.float32)
         piece_onehot[next_piece_idx] = 1.0
- 
+
         next_piece_onehot = np.zeros(len(config.SHAPES), dtype=np.float32)
         next_piece_onehot[next_next_piece_idx] = 1.0
- 
+
         return np.concatenate([
             np.array(heights, dtype=np.float32),
             np.array(holes_per_col, dtype=np.float32),
