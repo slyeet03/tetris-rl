@@ -12,8 +12,8 @@ class PrioritizedReplayBuffer:
         self.eps = eps
         self.max_priority = 1.0
 
-    def push(self, obs, action, reward, next_obs, done, next_mask):
-        transition = (obs,action,reward,next_obs,done,next_mask)
+    def push(self, features, reward, next_features, next_mask, done):
+        transition = (features, reward, next_features, next_mask, done)
 
         # new transition getting max priority so it gets sampled atleast once
         self.tree.add(self.max_priority**self.alpha, transition)
@@ -36,15 +36,14 @@ class PrioritizedReplayBuffer:
         is_weights = (self.tree.n_entries * sampling_probs) ** (-beta)
         is_weights /= is_weights.max()
         
-        obs, actions, rewards, next_obs, dones, next_masks = zip(*batch)
+        features, rewards, next_features, next_masks, dones = zip(*batch)
 
         return (
-            np.array(obs, dtype=np.float32),
-            np.array(actions, dtype=np.int64),
+            np.array(features, dtype=np.float32),
             np.array(rewards, dtype=np.float32),
-            np.array(next_obs, dtype=np.float32),
-            np.array(dones, dtype=np.float32),
+            np.array(next_features, dtype=np.float32),
             np.array(next_masks, dtype=bool),
+            np.array(dones, dtype=np.float32),
             idxs,
             np.array(is_weights, dtype=np.float32),
         )
