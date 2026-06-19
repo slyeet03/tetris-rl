@@ -237,7 +237,7 @@ class TetrisEnv:
             height=0
             found_filled = False
             col_holes = 0
-        for y in range(config.BOARD_HEIGHT):
+            for y in range(config.BOARD_HEIGHT):
                 if grid[y][x] != 0:
                     if not found_filled:
                         height = config.BOARD_HEIGHT - y
