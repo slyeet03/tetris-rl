@@ -1,7 +1,7 @@
+import enum
 import warnings
-from hmac import new
+from re import T
 
-import gymnasium as gym
 import numpy as np
 
 warnings.filterwarnings(
@@ -16,19 +16,11 @@ import tetris
 from tetris import Tetris, Tetromino
 
 
-class TetrisEnv(gym.Env):
-    def __init__(self, render_mode = None):
+class TetrisEnv:
+    def __init__(self, render_mode = None, seed=None):
         self.render_mode = render_mode
-
-        self.observation_space = gym.spaces.Box(
-            low=0.0,
-            high=1.0,
-            shape=(49,),
-            dtype = np.float32
-        )
-
-        self.action_space = gym.spaces.Discrete(config.MAX_PLACEMENTS)
-        self.cached_placements = None
+        self.rng=np.random.default_rng(seed)
+        self.game=None
 
         if render_mode == "yes":
             pygame.init()
@@ -38,58 +30,22 @@ class TetrisEnv(gym.Env):
         
         self.reset()
 
-    def reset(self, *, seed=None, options=None):
-        super().reset(seed=seed)
+    def reset(self, *, seed=None):
+        if seed is not None:
+            self.rng = np.random.default_rng(seed)
 
         self.game = Tetris(
             config.BOARD_WIDTH,
             config.BOARD_HEIGHT,
-            self.np_random
+            self.rng
         )
-        self.cached_placements = None
-        
-        mask = self.action_masks()
-        return self.get_observation(), {"action_mask": mask} # passing the info as mask
 
-    def get_valid_placement(self):
-        placements = []
-        piece = self.game.current_piece
-        num_rotation = len(piece.shape)
+        return self.get_candidates()
 
-        for rotation_idx in range(num_rotation):
-            # current rotation
-            shape = piece.shape[rotation_idx]
+    def count_holes(self, grid=None):
+        if grid is None:
+            grid = self.game.grid
 
-            # getting all occupied cells
-            occupied = [
-                (i,j)
-                for i, row in enumerate (shape)
-                for j, cell in enumerate (row)
-                if cell == '0'
-            ]
-
-            # j stores a range or columns occupied by the 0 string
-            leftmost = min(j for _,j in occupied)
-            rightmost = max(j for _,j in occupied)
-
-            # a piece is a 5x5 grid so gotta do some shifting for it to only occupy the cells that the 0 is on
-            for x_pos in range(-leftmost, self.game.width - rightmost):
-                temp = Tetromino(x_pos, -2, piece.shape,self.game.rng,piece.shape_idx)
-                temp.rotation = rotation_idx
-
-                # can a piece even spawn here?
-                if not self.game.valid_move(temp,0,0,0):
-                    continue
-
-                # hard drop
-                while self.game.valid_move(temp,0,1,0):
-                    temp.y += 1
-
-                placements.append((rotation_idx,x_pos))
-
-        return placements
-            
-    def count_holes(self):
         total_holes = 0
 
         for x in range(config.BOARD_WIDTH):
@@ -102,7 +58,10 @@ class TetrisEnv(gym.Env):
 
         return total_holes
 
-    def aggregate_height(self):
+    def aggregate_height(self, grid=None):
+        if grid is None:
+            grid = self.game.grid
+
         total = 0
 
         for x in range(config.BOARD_WIDTH):
@@ -114,7 +73,10 @@ class TetrisEnv(gym.Env):
         return total
 
     # excluding the rightmost col from bumpiness
-    def compute_bumpiness(self):
+    def compute_bumpiness(self, grid=None):
+        if grid is None:
+            grid = self.game.grid
+
         heights = []
         for x in range(config.BOARD_WIDTH - 1):  # cols 0..8
             height = 0
@@ -126,7 +88,10 @@ class TetrisEnv(gym.Env):
         return sum(abs(heights[i] - heights[i+1]) for i in range(len(heights)-1))
     
 
-    def column_height_std(self):
+    def column_height_std(self, grid=None):
+        if grid is None:
+            grid = self.game.grid
+
         heights = []
         for x in range(config.BOARD_WIDTH):
             height = 0
@@ -139,7 +104,10 @@ class TetrisEnv(gym.Env):
         variance = sum((h - mean) ** 2 for h in heights) / len(heights)
         return variance ** 0.5
 
-    def count_wells(self):
+    def count_wells(self, grid=None):
+        if grid is None:
+            grid = self.game.grid
+
         heights = []
         for x in range(config.BOARD_WIDTH):
             height = 0
@@ -177,55 +145,8 @@ class TetrisEnv(gym.Env):
                 count += 1
         return count
 
-    '''
-    def compute_reward(self, lines_cleared, holes_before, holes_after,
-                   height_after, bumpiness_after, game_over):
-        line_rewards = [0, 5, 15, 50, 200]
-        reward = line_rewards[lines_cleared]
-#        if lines_cleared == 4:
-#            reward += config.FAT_TET_BONUS
-
-        reward += config.SURVIVAL_BONUS
-
-        new_holes = holes_after - holes_before
-        if new_holes > 0:
-            reward -= config.NEW_HOLES_PENALTY * new_holes
-        reward -= config.EXISTING_HOLES_PENALTY * holes_after
-        reward -= config.HEIGHT_PENALTY * height_after
-        reward -= config.BUMPINESS_PENALTY * bumpiness_after
-
-        near = self.near_complete_right_well_rows()
-        well = self.right_well_depth()
-        reward += config.NEAR_COMPLETE_BONUS * near
-        reward += config.RIGHT_WELL_BONUS * well
-
-        if game_over:
-            reward -= config.GAME_OVER_PENALTY
-
-        return reward
     
-
-    phase
-    def compute_reward(self, lines_cleared, holes_before, holes_after,
-                   height_after, bumpiness_after, game_over, phase):
-        line_rewards = [0, 15, 50, 150, 500]
-        reward = line_rewards[lines_cleared]
-
-        reward += config.SURVIVAL_BONUS * (1.0 - 0.6 * phase)
-
-        new_holes = holes_after - holes_before
-        if new_holes > 0:
-            reward -= config.NEW_HOLES_PENALTY * new_holes
-
-        reward -= config.HEIGHT_PENALTY * (1.0 + 3.0 * phase) * height_after
-        reward -= config.BUMPINESS_PENALTY * (1.0 + 2.0 * phase) * bumpiness_after
-
-        if game_over:
-            reward -= config.GAME_OVER_PENALTY
-
-        return reward
-    '''
-    def compute_reward(self,lines_cleared, holes_before,holes_after,height_before,height_after,bumpiness_before,bumpiness_after,game_over):
+    def compute_reward(self,lines_cleared, holes_before,holes_after,height_before,height_after,bumpiness_before,bumpiness_after,game_over,grid_after=None):
         reward = 0
 
         line_rewards = [0,10,80,150,500]
@@ -252,12 +173,6 @@ class TetrisEnv(gym.Env):
         elif bumpiness_diff < 0:
             reward += 0.5 * config.BUMPINESS_PENALTY_DIFF * abs(bumpiness_diff)
  
-        '''
-        reward -= config.EXISTING_HOLES_PENALTY * holes_after
-        reward -= config.HEIGHT_PENALTY * height_after
-        reward -= config.BUMPINESS_PENALTY * bumpiness_after
-        '''
-
         reward -= config.WELL_PENALTY * self.count_wells()
 
         if game_over:
@@ -265,108 +180,167 @@ class TetrisEnv(gym.Env):
 
         return reward
 
-    def step(self, action):
-        if self.cached_placements is None:
-            self.cached_placements = self.get_valid_placement()
+    def simulate_drop(self, shape, x_pos, y_pos):
+        grid_copy = [row.copy() for row in self.game.grid]
+        
+        for i, row in enumerate(shape):
+            for j, cell in enumerate(row):
+                if cell == '0':
+                    y=y_pos+i
+                    x=x_pos+j
+                    if 0<= y < config.BOARD_HEIGHT:
+                        grid_copy[y][x] = 1
 
-        placements = self.cached_placements
-        action = action % len(placements)
-        rotation, column = placements[action]
+        lines_cleared=0
+        i=config.BOARD_HEIGHT-1
+        while i>= 0:
+            if all(c != 0 for c in grid_copy[i]):
+                lines_cleared+=1
+                del grid_copy[i]
+                grid_copy.insert(0,[0 for _ in range(config.BOARD_WIDTH)])
+            else:
+                i -= 1
+        return grid_copy, lines_cleared
 
-        # screenshot the board before placing any blocks
-        holes_before = self.count_holes()
-        height_before = self.aggregate_height()
-        bumpiness_before = self.compute_bumpiness()
+    # whether putting that piece there is valid or not
+    def check_spawn_blocked(self, grid, piece):
+        shape = piece.shape[0]
+        spawn_x, spawn_y = 3, -2
+        for i, row in enumerate(shape):
+            for j, cell in enumerate(row):
+                if cell != '0':
+                    continue
 
-        self.game.current_piece.rotation = rotation
-        self.game.current_piece.x = column
-        self.game.current_piece.y = -2
-        lines_cleared = self.game.hard_drop()
+                x=spawn_x + j
+                y=spawn_y+i
 
-        # screenshot the board after placing the blocks
-        holes_after = self.count_holes()
-        height_after = self.aggregate_height()
-        bumpiness_after = self.compute_bumpiness()
-        phase = min(1.0, self.game.pieces / 80.0)
+                # wall collision
+                if x<0 or x>=config.BOARD_WIDTH:
+                    return True
+                # bottom of the earth
+                if y<0:
+                    continue
+                # out of bound
+                if y>=config.BOARD_HEIGHT:
+                    return True
+                # colliding with another block
+                if grid[y][x] != 0:
+                    return True
+        
+        return False
 
-        reward = self.compute_reward(
-            lines_cleared,
-            holes_before,
-            holes_after,
-            height_before,
-            height_after,
-            bumpiness_before,
-            bumpiness_after,
-            self.game.game_over
-        )
-
-        next_mask = self.action_masks()
-
-        return self.get_observation(), reward, self.game.game_over, False, {"action_mask": next_mask}
-
-    # to check what action indices are valid
-    def action_masks(self):
-        self.cached_placements = self.get_valid_placement()
-        num_valid = len(self.cached_placements)
- 
-        array = np.zeros(config.MAX_PLACEMENTS, dtype=bool)
-        array[:num_valid] = True
-        return array
-
-    # getting the states for the ppo
-    def get_observation(self):
-        obs = []
-        for x in range(config.BOARD_WIDTH):
-            height = 0
-            for y in range(config.BOARD_HEIGHT):
-                if self.game.grid[y][x] != 0:
-                    height = config.BOARD_HEIGHT - y
-                    break
-            obs.append(height / config.BOARD_HEIGHT)
-
-        for x in range(config.BOARD_WIDTH):
-            col_holes = 0
+    # input for the network
+    def afterstate_features(self, grid, lines_cleared, next_piece_idx, next_next_piece_idx):
+        heights=[]
+        holes_per_col=[]
+        for x in range(config.BOARD_HEIGHT):
+            height=0
             found_filled = False
-            for y in range(config.BOARD_HEIGHT):
-                if self.game.grid[y][x] != 0:
+            col_holes = 0
+        for y in range(config.BOARD_HEIGHT):
+                if grid[y][x] != 0:
+                    if not found_filled:
+                        height = config.BOARD_HEIGHT - y
+
                     found_filled = True
                 elif found_filled:
                     col_holes += 1
-            obs.append(col_holes / config.BOARD_HEIGHT)
 
-        for x in range(config.BOARD_WIDTH):
-            max_buried = 0
-            cells_above = 0
-            found_filled = False
-            for y in range(config.BOARD_HEIGHT):
-                if self.game.grid[y][x] != 0:
-                    found_filled = True
-                    cells_above += 1
-                elif found_filled:
-                    max_buried = max(max_buried, cells_above)
-                    cells_above = 0 
-            obs.append(max_buried / config.BOARD_HEIGHT)
+            heights.append(height / config.BOARD_HEIGHT)
+            holes_per_col.append(col_holes / config.BOARD_HEIGHT)
+ 
+        bumpiness = self.compute_bumpiness(grid) / (config.BOARD_HEIGHT * (config.BOARD_WIDTH - 1))
+        agg_height = self.aggregate_height(grid) / (config.BOARD_HEIGHT * config.BOARD_WIDTH)
+        wells = self.count_wells(grid) / (config.BOARD_HEIGHT * config.BOARD_WIDTH)
+ 
+        lines_onehot = np.zeros(5, dtype=np.float32)
+        lines_onehot[min(lines_cleared, 4)] = 1.0
+ 
+        piece_onehot = np.zeros(len(config.SHAPES), dtype=np.float32)
+        piece_onehot[next_piece_idx] = 1.0
+ 
+        next_piece_onehot = np.zeros(len(config.SHAPES), dtype=np.float32)
+        next_piece_onehot[next_next_piece_idx] = 1.0
+ 
+        return np.concatenate([
+            np.array(heights, dtype=np.float32),
+            np.array(holes_per_col, dtype=np.float32),
+            np.array([bumpiness, agg_height, wells], dtype=np.float32),
+            lines_onehot,
+            piece_onehot,
+            next_piece_onehot,
+        ])
 
-        obs.append(self.compute_bumpiness() / (config.BOARD_HEIGHT * 9))
-        obs.append(self.aggregate_height() / (config.BOARD_HEIGHT * config.BOARD_WIDTH))
-        obs.append(self.count_wells() / (config.BOARD_HEIGHT * config.BOARD_WIDTH))
-        curr_arr = np.zeros(len(config.SHAPES))
-        curr_arr[self.game.current_piece.shape_idx] = 1
-        obs.extend(curr_arr)
+    def get_candidates(self):
+        piece = self.game.current_piece
+        num_rotations = len(piece.shape)
+ 
+        holes_before = self.count_holes()
+        height_before = self.aggregate_height()
+        bumpiness_before = self.compute_bumpiness()
+ 
+        candidates = []
+ 
+        for rotation_idx in range(num_rotations):
+            shape = piece.shape[rotation_idx]
+ 
+            occupied = [
+                (i, j)
+                for i, row in enumerate(shape)
+                for j, cell in enumerate(row)
+                if cell == '0'
+            ]
+            leftmost = min(j for _, j in occupied)
+            rightmost = max(j for _, j in occupied)
+ 
+            for x_pos in range(-leftmost, self.game.width - rightmost):
+                temp = Tetromino(x_pos, -2, piece.shape, self.game.rng, piece.shape_idx)
+                temp.rotation = rotation_idx
+ 
+                if not self.game.valid_move(temp, 0, 0, 0):
+                    continue
+ 
+                # hard drop
+                while self.game.valid_move(temp, 0, 1, 0):
+                    temp.y += 1
+ 
+                grid_after, lines_cleared = self.simulate_drop(shape, x_pos, temp.y)
+ 
+                holes_after = self.count_holes(grid_after)
+                height_after = self.aggregate_height(grid_after)
+                bumpiness_after = self.compute_bumpiness(grid_after)
+ 
+                game_over = self.check_spawn_blocked(grid_after, self.game.next_piece)
+ 
+                reward = self.compute_reward(
+                    lines_cleared, holes_before, holes_after,
+                    height_before, height_after,
+                    bumpiness_before, bumpiness_after,
+                    game_over, grid_after
+                )
+ 
+                features = self.build_afterstate_features(
+                    grid_after, lines_cleared,
+                    self.game.next_piece.shape_idx,
+                    self.game.next_next_piece.shape_idx
+                )
+ 
+                candidates.append({
+                    "rotation": rotation_idx,
+                    "x_pos": x_pos,
+                    "features": features,
+                    "reward": reward,
+                    "done": game_over,
+                })
+ 
+        return candidates
 
-        next_arr = np.zeros(len(config.SHAPES))
-        next_arr[self.game.next_piece.shape_idx] = 1
-        obs.extend(next_arr)
+    def apply_placement(self, rotation, x_pos):
+        self.game.current_piece.rotation = rotation
+        self.game.current_piece.x=x_pos
+        self.game.current_piece.y=-2
 
-        next_next_arr = np.zeros(len(config.SHAPES))
-        next_next_arr[self.game.next_next_piece.shape_idx] = 1
-        obs.extend(next_next_arr)
-
-        phase = min(1.0, self.game.pieces / 80.0)
-        obs.append(phase)
-
-        return np.array(obs, dtype=np.float32)
-
+        return self.game.hard_drop()
 
     def render(self):
         if self.render_mode:
