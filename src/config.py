@@ -1,5 +1,6 @@
 # tetris wrapper constants
 MAX_PLACEMENTS = 40
+AFTERSTATE_DIM = 38
 # penalties
 SURVIVAL_BONUS = 3.0
 NEW_HOLES_PENALTY = 2.5
