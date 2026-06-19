@@ -1,6 +1,7 @@
 # Tetris AI
 
-[![demo]](https://youtu.be/yYLHO8jdvUs)
+[![example](https://img.youtube.com/vi/yYLHO8jdvUs/0.jpg)](https://youtu.be/yYLHO8jdvUs)
+
 A Tetris implementation paired with a Double DQN agent that learns to play by evaluating afterstates, i.e., it scores every possible final resting position for the current piece, rather than picking from a fixed action space of moves.
 
 ## Overview
